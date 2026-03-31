@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  postgres-db:
+    image: postgres:latest
+    container_name: my-postgres-container
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: party_time # This creates the initial database
+      PGDATA: /var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    volumes:
+      # Mount the SQL script from the host to the container's init directory
+      - ./db/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql
+      # Persist the actual database data in a named volume
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
