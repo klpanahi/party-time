@@ -10,8 +10,9 @@ CREATE TABLE public.contacts (
 CREATE TABLE public.events (
 	id int8 GENERATED ALWAYS AS IDENTITY NOT NULL,
 	"name" varchar NOT NULL,
-	"date" timestamp NULL,
+	"date" varchar NOT NULL,
 	"description" varchar NOT NULL,
+	"location" varchar NOT NULL,
 	"plus_ones_allowed" bool NOT NULL,
 	CONSTRAINT events_pk PRIMARY KEY (id)
 );
@@ -31,7 +32,7 @@ insert into contacts (first_name, last_name, phone_number )
 VALUES ('Mark', 'Jones', '1234567890');
 
 
-insert into events (name, date, description, plus_ones_allowed)
-values ('Test Event', '01-01-2027 13:00:00', 'A Test Event made for party time', true);
+insert into events (name, date, description, location, plus_ones_allowed)
+values ('Test Event', 'March 7th', 'A Test Event made for party time', 'My House!', true);
 
 insert into invites (event_id, contact_id) values (1,1);

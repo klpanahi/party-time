@@ -1,5 +1,22 @@
 # Party Time Repo
 
+## How To run this
+
+This should all be done from the `public_backed` working directory
+
+### Start the database
+
+```
+docker compose up
+```
+
+### Start the Gin Server
+
+```
+export ADMIN_ENABLED="true" ##The app currently only runs in admin mode
+air
+```
+
 This app will consist of 3 code bases
 
 - An invite portal (party_invite)

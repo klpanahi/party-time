@@ -1,77 +1,72 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
-	"net/http"
+
+	"github.com/jmoiron/sqlx"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
 type Env struct {
-	db *sql.DB
+	db *sqlx.DB // Change this to sqlx.DB
 }
 
 func main() {
 	router := gin.Default()
 	adminEnabled := getenv("ADMIN_ENABLED", "false")
 	dbgcfg := loaddbconfig()
-	db, err := sql.Open("postgres", dbgcfg)
+	db, err := sqlx.Connect("postgres", dbgcfg)
 	if err != nil {
 		fmt.Println("Error!")
-		print(err)
-		panic(err)
-	}
-	defer db.Close()
-	err = db.Ping()
-	if err != nil {
 		panic(err)
 	}
 	env := &Env{db: db}
-
 	router.GET("/invites", env.getInvites)
+	router.GET("/invite/:id", env.getInviteByID)
+	router.GET("/event/:id", env.getEventByID)
 
 	if adminEnabled == "true" {
 		fmt.Println("Admin Portal enabled for this runtime, exposing admin endponts...")
-		router.POST("/invites", postInvites)
+		// router.POST("/invites", postInvites)
 		router.Run("localhost:8080")
 	}
 }
 
 func (env *Env) getInvites(c *gin.Context) {
+	invites := []Invite{}
 	sql := "select * from invites;"
-	selectstatement(env.db, sql)
-	c.IndentedJSON(http.StatusOK, invites)
+	err := env.db.Select(&invites, sql)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Printf("Found %d invites\n", len(invites))
+	c.IndentedJSON(200, invites)
 }
 
-type invite struct {
-	Party_ID          string `json:"party_id"`
-	Invitee           string `json:"invitee"`
-	Plus_ones_allowed bool   `json:"plus_ones_allowed"`
-	Party_date        string `json:"party_date"`
-}
+func (env *Env) getInviteByID(c *gin.Context) {
+	id := c.Param("id")
 
-var invites = []invite{
-	{Party_ID: "XYZ", Invitee: "Kevin", Plus_ones_allowed: true, Party_date: "March 7th"},
-}
-
-func postInvites(c *gin.Context) {
-	var newInvite invite
-
-	// Call BindJSON to bind the received JSON to
-	// newInvite.
-	if err := c.BindJSON(&newInvite); err != nil {
-		return
+	invite := Invite{}
+	sql := fmt.Sprintf("select * from invites where id='%s'", id)
+	err := env.db.Get(&invite, sql)
+	if err != nil {
+		fmt.Println(err)
 	}
 
-	// Add the new invite to the slice.
-	invites = append(invites, newInvite)
-	c.IndentedJSON(http.StatusCreated, newInvite)
+	c.IndentedJSON(200, invite)
 }
 
-// curl http://localhost:8080/invites \
-// --include \
-// --header "Content-Type: application/json" \
-// --request "POST" \
-// --data '{"party_id": "ABC", "invitee": "Kevin", "plus_ones_allowed": true, "party_date": "March 8th"}'
+func (env *Env) getEventByID(c *gin.Context) {
+	id := c.Param("id")
+
+	event := Event{}
+	sql := fmt.Sprintf("select * from events where id='%s'", id)
+	err := env.db.Get(&event, sql)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	c.IndentedJSON(200, event)
+}
