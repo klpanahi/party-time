@@ -42,12 +42,15 @@ export default function InvitePage() {
   const [status, setStatus] = useState('idle') // 'idle' | 'saving' | 'saved' | 'error'
   const [error, setError] = useState(null)
 
+  const [coInvitees, setCoInvitees] = useState([])
+
   useEffect(() => {
     fetchInvite(id)
       .then((data) => {
         setInvite(data)
         setRsvp(data.rsvp_status)
         setGuests(data.additional_guests)
+        setCoInvitees(data.co_invitees ?? [])
       })
       .catch((e) => setError(e.message))
   }, [id])
@@ -172,9 +175,44 @@ export default function InvitePage() {
           </>
         )}
 
+        {coInvitees.length > 0 && (
+          <>
+            <hr className="divider" />
+            <div className="co-invitees-section">
+              <p className="section-label">Who else is invited</p>
+              <ul className="co-invitee-list">
+                {coInvitees.map((p, i) => (
+                  <li key={i} className="co-invitee-row">
+                    <span className="co-invitee-name">
+                      {p.first_name}{p.last_initial ? ` ${p.last_initial}.` : ''}
+                    </span>
+                    <span className="co-invitee-meta">
+                      <RSVPPill status={p.rsvp_status} />
+                      {p.additional_guests > 0 && (
+                        <span className="co-invitee-plus">+{p.additional_guests}</span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   )
+}
+
+function RSVPPill({ status }) {
+  const map = {
+    'Accepted':    { label: 'Attending',     cls: 'pill-accepted' },
+    'Tentative':   { label: 'Maybe',         cls: 'pill-tentative' },
+    'Declined':    { label: "Can't make it", cls: 'pill-declined' },
+    'No Response': { label: 'No response',   cls: 'pill-none' },
+  }
+  const { label, cls } = map[status] ?? { label: status, cls: 'pill-none' }
+  return <span className={`rsvp-pill ${cls}`}>{label}</span>
 }
 
 function DetailRow({ icon, text }) {

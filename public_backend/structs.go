@@ -97,6 +97,18 @@ type InvitePageData struct {
 	PlusOnesAllowed  bool   `db:"plus_ones_allowed" json:"plus_ones_allowed"`
 }
 
+type CoInvitee struct {
+	FirstName        string `db:"first_name"        json:"first_name"`
+	LastInitial      string `db:"last_initial"      json:"last_initial"`
+	RSVPStatus       string `db:"attending"         json:"rsvp_status"`
+	AdditionalGuests int    `db:"additional_guests" json:"additional_guests"`
+}
+
+type InvitePageResponse struct {
+	InvitePageData
+	CoInvitees []CoInvitee `json:"co_invitees"`
+}
+
 type UpdateInviteRequest struct {
 	RSVPStatus       string `json:"rsvp_status"`
 	AdditionalGuests int    `json:"additional_guests"`

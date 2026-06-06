@@ -93,7 +93,33 @@ func (env *Env) getInviteByID(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "invite not found"})
 		return
 	}
-	c.JSON(200, data)
+
+	coInvitees := []CoInvitee{}
+	coSQL := `
+		SELECT
+			c.first_name,
+			LEFT(c.last_name, 1) AS last_initial,
+			i.attending,
+			i.additional_guests
+		FROM invites i
+		JOIN contacts c ON c.id = i.contact_id
+		WHERE i.event_id = $1 AND i.id != $2
+		ORDER BY
+			CASE i.attending
+				WHEN 'Accepted'    THEN 1
+				WHEN 'Tentative'   THEN 2
+				WHEN 'No Response' THEN 3
+				WHEN 'Declined'    THEN 4
+				ELSE 5
+			END,
+			c.first_name`
+	if err := env.db.Select(&coInvitees, coSQL, data.EventID, id); err != nil {
+		fmt.Println(err)
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, InvitePageResponse{InvitePageData: data, CoInvitees: coInvitees})
 }
 
 func (env *Env) updateInvite(c *gin.Context) {

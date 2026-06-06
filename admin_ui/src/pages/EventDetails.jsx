@@ -15,7 +15,12 @@ export default function EventDetails() {
   const saveTimer = useRef(null)
 
   useEffect(() => {
-    getEvent(id).then(setDetail).catch((e) => setError(e.message))
+    getEvent(id)
+      .then((data) => setDetail({
+        ...data,
+        event: { ...data.event, date: toDatetimeLocal(data.event.date) },
+      }))
+      .catch((e) => setError(e.message))
   }, [id])
 
   function scheduleAutoSave(updatedEvent) {
@@ -85,7 +90,7 @@ export default function EventDetails() {
             <input value={event.name} onChange={(e) => updateField('name', e.target.value)} />
           </label>
           <label>Date &amp; Time
-            <input type="datetime-local" value={toDatetimeLocal(event.date)}
+            <input type="datetime-local" value={event.date}
               onChange={(e) => updateField('date', e.target.value)} />
           </label>
           <label>Location

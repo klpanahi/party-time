@@ -213,6 +213,64 @@ body {
 .status-saved  { color: #16a34a; font-weight: 500; }
 .status-error  { color: #dc2626; }
 
+/* Co-invitees */
+.co-invitees-section {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.co-invitee-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.co-invitee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  gap: 12px;
+}
+.co-invitee-row:nth-child(odd) { background: #f9fafb; }
+
+.co-invitee-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.co-invitee-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.co-invitee-plus {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.rsvp-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.pill-accepted  { background: #dcfce7; color: #16a34a; }
+.pill-tentative { background: #fef3c7; color: #d97706; }
+.pill-declined  { background: #fee2e2; color: #dc2626; }
+.pill-none      { background: #f3f4f6; color: #6b7280; }
+
 /* Past event notice */
 .past-notice {
   margin: 4px 28px 24px;
