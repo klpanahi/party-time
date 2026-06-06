@@ -1,0 +1,22 @@
+const BASE = 'http://localhost:8080/admin'
+
+async function request(method, path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  return res.json()
+}
+
+export const getContacts = () => request('GET', '/contacts')
+export const getEvents = () => request('GET', '/events')
+export const getEvent = (id) => request('GET', `/events/${id}`)
+export const createEvent = (data) => request('POST', '/events', data)
+export const updateEvent = (id, data) => request('PUT', `/events/${id}`, data)
+export const addInvitee = (eventId, data) => request('POST', `/events/${eventId}/invites`, data)
+export const sendMessage = (eventId, content) => request('POST', `/events/${eventId}/messages`, { content })

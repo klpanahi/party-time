@@ -2,15 +2,16 @@ package main
 
 import (
 	"fmt"
+	"time"
 
-	"github.com/jmoiron/sqlx"
-
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
 
 type Env struct {
-	db *sqlx.DB // Change this to sqlx.DB
+	db *sqlx.DB
 }
 
 func main() {
@@ -23,20 +24,39 @@ func main() {
 		panic(err)
 	}
 	env := &Env{db: db}
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
+	// Public routes — available on both pods.
 	router.GET("/invites", env.getInvites)
 	router.GET("/invite/:id", env.getInviteByID)
 	router.GET("/event/:id", env.getEventByID)
 
 	if adminEnabled == "true" {
-		fmt.Println("Admin Portal enabled for this runtime, exposing admin endponts...")
-		// router.POST("/invites", postInvites)
-		router.Run("localhost:8080")
+		fmt.Println("Admin Portal enabled for this runtime, exposing admin endpoints...")
+		admin := router.Group("/admin")
+		admin.GET("/contacts", env.adminGetContacts)
+		admin.GET("/events", env.adminGetEvents)
+		admin.POST("/events", env.adminCreateEvent)
+		admin.GET("/events/:id", env.adminGetEvent)
+		admin.PUT("/events/:id", env.adminUpdateEvent)
+		admin.POST("/events/:id/invites", env.adminAddInvitee)
+		admin.POST("/events/:id/messages", env.adminSendMessage)
 	}
+
+	router.Run(":8080")
 }
 
 func (env *Env) getInvites(c *gin.Context) {
 	invites := []Invite{}
-	sql := "select * from invites;"
+	sql := "SELECT * FROM invites"
 	err := env.db.Select(&invites, sql)
 	if err != nil {
 		fmt.Println(err)
@@ -47,26 +67,20 @@ func (env *Env) getInvites(c *gin.Context) {
 
 func (env *Env) getInviteByID(c *gin.Context) {
 	id := c.Param("id")
-
 	invite := Invite{}
-	sql := fmt.Sprintf("select * from invites where id='%s'", id)
-	err := env.db.Get(&invite, sql)
+	err := env.db.Get(&invite, "SELECT * FROM invites WHERE id = $1", id)
 	if err != nil {
 		fmt.Println(err)
 	}
-
 	c.IndentedJSON(200, invite)
 }
 
 func (env *Env) getEventByID(c *gin.Context) {
 	id := c.Param("id")
-
 	event := Event{}
-	sql := fmt.Sprintf("select * from events where id='%s'", id)
-	err := env.db.Get(&event, sql)
+	err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1", id)
 	if err != nil {
 		fmt.Println(err)
 	}
-
 	c.IndentedJSON(200, event)
 }
