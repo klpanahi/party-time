@@ -79,6 +79,26 @@ type SendMessageRequest struct {
 	Content string `json:"content" binding:"required"`
 }
 
+type InvitePageData struct {
+	InviteID         int    `db:"id"                json:"invite_id"`
+	RSVPStatus       string `db:"attending"         json:"rsvp_status"`
+	AdditionalGuests int    `db:"additional_guests" json:"additional_guests"`
+	EventID          int    `db:"event_id"          json:"event_id"`
+	ContactID        int    `db:"contact_id"        json:"contact_id"`
+	FirstName        string `db:"first_name"        json:"first_name"`
+	LastName         string `db:"last_name"         json:"last_name"`
+	EventName        string `db:"event_name"        json:"event_name"`
+	EventDate        string `db:"event_date"        json:"event_date"`
+	EventDescription string `db:"event_description" json:"event_description"`
+	EventLocation    string `db:"event_location"    json:"event_location"`
+	PlusOnesAllowed  bool   `db:"plus_ones_allowed" json:"plus_ones_allowed"`
+}
+
+type UpdateInviteRequest struct {
+	RSVPStatus       string `json:"rsvp_status"`
+	AdditionalGuests int    `json:"additional_guests"`
+}
+
 type Message struct {
 	ID      int    `db:"id"       json:"id"`
 	Content string `db:"content"  json:"content"`

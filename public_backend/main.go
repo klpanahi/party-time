@@ -26,7 +26,7 @@ func main() {
 	env := &Env{db: db}
 
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:5174"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -37,6 +37,7 @@ func main() {
 	// Public routes — available on both pods.
 	router.GET("/invites", env.getInvites)
 	router.GET("/invite/:id", env.getInviteByID)
+	router.PUT("/invite/:id", env.updateInvite)
 	router.GET("/event/:id", env.getEventByID)
 
 	if adminEnabled == "true" {
@@ -69,12 +70,45 @@ func (env *Env) getInvites(c *gin.Context) {
 
 func (env *Env) getInviteByID(c *gin.Context) {
 	id := c.Param("id")
-	invite := Invite{}
-	err := env.db.Get(&invite, "SELECT * FROM invites WHERE id = $1", id)
+	data := InvitePageData{}
+	sql := `
+		SELECT
+			i.id, i.attending, i.additional_guests, i.event_id, i.contact_id,
+			c.first_name, c.last_name,
+			e.name        AS event_name,
+			e.date        AS event_date,
+			e.description AS event_description,
+			e.location    AS event_location,
+			e.plus_ones_allowed
+		FROM invites i
+		JOIN contacts c ON c.id = i.contact_id
+		JOIN events   e ON e.id = i.event_id
+		WHERE i.id = $1`
+	if err := env.db.Get(&data, sql, id); err != nil {
+		fmt.Println(err)
+		c.JSON(404, gin.H{"error": "invite not found"})
+		return
+	}
+	c.JSON(200, data)
+}
+
+func (env *Env) updateInvite(c *gin.Context) {
+	id := c.Param("id")
+	var req UpdateInviteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	_, err := env.db.Exec(
+		"UPDATE invites SET attending=$1, additional_guests=$2 WHERE id=$3",
+		req.RSVPStatus, req.AdditionalGuests, id,
+	)
 	if err != nil {
 		fmt.Println(err)
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
 	}
-	c.IndentedJSON(200, invite)
+	c.JSON(200, gin.H{"ok": true})
 }
 
 func (env *Env) getEventByID(c *gin.Context) {

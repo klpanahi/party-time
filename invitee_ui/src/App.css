@@ -1,0 +1,236 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f0f4ff;
+  color: #1a1a1a;
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100dvh;
+}
+
+/* Full-screen centering wrapper */
+.screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px 48px;
+}
+
+/* Main card */
+.invite-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.10);
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* Header */
+.invite-header {
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  color: #fff;
+  padding: 32px 28px 28px;
+}
+
+.greeting {
+  font-size: 15px;
+  opacity: .85;
+  margin-bottom: 6px;
+}
+
+.event-title {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Event details */
+.event-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 28px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.detail-icon {
+  font-size: 18px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.detail-text {
+  font-size: 15px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 0 28px;
+}
+
+/* RSVP section */
+.rsvp-section {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #6b7280;
+}
+
+.rsvp-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rsvp-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+  text-align: left;
+  width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rsvp-btn:active { transform: scale(.98); }
+
+.rsvp-icon {
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f3f4f6;
+  font-style: normal;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.rsvp-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: #374151;
+}
+
+/* Per-option selected states */
+.rsvp-btn.rsvp-accepted.selected  { border-color: #16a34a; background: #f0fdf4; }
+.rsvp-btn.rsvp-accepted.selected .rsvp-icon  { background: #16a34a; color: #fff; }
+.rsvp-btn.rsvp-accepted.selected .rsvp-label { color: #15803d; font-weight: 600; }
+
+.rsvp-btn.rsvp-tentative.selected { border-color: #d97706; background: #fffbeb; }
+.rsvp-btn.rsvp-tentative.selected .rsvp-icon { background: #d97706; color: #fff; }
+.rsvp-btn.rsvp-tentative.selected .rsvp-label { color: #b45309; font-weight: 600; }
+
+.rsvp-btn.rsvp-declined.selected  { border-color: #dc2626; background: #fef2f2; }
+.rsvp-btn.rsvp-declined.selected .rsvp-icon  { background: #dc2626; color: #fff; }
+.rsvp-btn.rsvp-declined.selected .rsvp-label { color: #b91c1c; font-weight: 600; }
+
+/* Hover states (non-selected) */
+.rsvp-btn.rsvp-accepted:not(.selected):hover  { border-color: #86efac; background: #f9fffe; }
+.rsvp-btn.rsvp-tentative:not(.selected):hover { border-color: #fcd34d; background: #fffef5; }
+.rsvp-btn.rsvp-declined:not(.selected):hover  { border-color: #fca5a5; background: #fffafa; }
+
+/* Plus ones */
+.guests-section {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.guest-counter {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.counter-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid #e5e7eb;
+  background: #fff;
+  font-size: 22px;
+  font-weight: 400;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+  color: #374151;
+}
+.counter-btn:hover:not(:disabled) { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+.counter-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.guest-count {
+  font-size: 28px;
+  font-weight: 700;
+  min-width: 32px;
+  text-align: center;
+  color: #1a1a1a;
+}
+
+/* Save status */
+.save-status {
+  min-height: 36px;
+  padding: 0 28px 20px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+}
+
+.status-saving { color: #6b7280; }
+.status-saved  { color: #16a34a; font-weight: 500; }
+.status-error  { color: #dc2626; }
+
+/* Loading / error states */
+.loading-pulse {
+  margin-top: 80px;
+  color: #6b7280;
+  font-size: 15px;
+}
+
+.error-card {
+  margin-top: 80px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #6b7280;
+}
+
+.error-icon {
+  font-size: 36px;
+  color: #dc2626;
+}
