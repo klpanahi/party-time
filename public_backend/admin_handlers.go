@@ -17,6 +17,49 @@ func (env *Env) adminGetContacts(c *gin.Context) {
 	c.JSON(http.StatusOK, contacts)
 }
 
+func (env *Env) adminCreateContact(c *gin.Context) {
+	var req struct {
+		FirstName   string `json:"first_name"   binding:"required"`
+		LastName    string `json:"last_name"`
+		PhoneNumber string `json:"phone_number" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var id int
+	sql := `INSERT INTO contacts (first_name, last_name, phone_number) VALUES ($1, $2, $3) RETURNING id`
+	if err := env.db.QueryRow(sql, req.FirstName, req.LastName, req.PhoneNumber).Scan(&id); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"id": id})
+}
+
+func (env *Env) adminUpdateContact(c *gin.Context) {
+	id := c.Param("id")
+
+	var req struct {
+		FirstName   string `json:"first_name"   binding:"required"`
+		LastName    string `json:"last_name"`
+		PhoneNumber string `json:"phone_number" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	sql := `UPDATE contacts SET first_name=$1, last_name=$2, phone_number=$3 WHERE id=$4`
+	if _, err := env.db.Exec(sql, req.FirstName, req.LastName, req.PhoneNumber, id); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (env *Env) adminGetEvents(c *gin.Context) {
 	events := []EventSummary{}
 	sql := `

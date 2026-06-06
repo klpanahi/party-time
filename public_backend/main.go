@@ -43,6 +43,8 @@ func main() {
 		fmt.Println("Admin Portal enabled for this runtime, exposing admin endpoints...")
 		admin := router.Group("/admin")
 		admin.GET("/contacts", env.adminGetContacts)
+		admin.POST("/contacts", env.adminCreateContact)
+		admin.PUT("/contacts/:id", env.adminUpdateContact)
 		admin.GET("/events", env.adminGetEvents)
 		admin.POST("/events", env.adminCreateEvent)
 		admin.GET("/events/:id", env.adminGetEvent)

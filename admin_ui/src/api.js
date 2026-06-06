@@ -14,6 +14,8 @@ async function request(method, path, body) {
 }
 
 export const getContacts = () => request('GET', '/contacts')
+export const createContact = (data) => request('POST', '/contacts', data)
+export const updateContact = (id, data) => request('PUT', `/contacts/${id}`, data)
 export const getEvents = () => request('GET', '/events')
 export const getEvent = (id) => request('GET', `/events/${id}`)
 export const createEvent = (data) => request('POST', '/events', data)
