@@ -363,6 +363,9 @@ body {
 .contact-name { font-weight: 500; font-size: 13px; flex: 1; }
 .contact-phone { font-size: 12px; color: var(--text-muted); }
 
+.opened-at  { font-size: 12px; color: var(--text-muted); }
+.not-opened { font-size: 12px; color: var(--border); font-style: italic; }
+
 .link-btn {
   background: none;
   border: none;

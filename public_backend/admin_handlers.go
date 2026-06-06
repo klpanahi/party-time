@@ -96,7 +96,7 @@ func (env *Env) adminGetEvent(c *gin.Context) {
 	sql := `
 		SELECT
 			i.id, i.attending, i.additional_guests, i.event_id, i.contact_id,
-			c.first_name, c.last_name, c.phone_number
+			c.first_name, c.last_name, c.phone_number, i.opened_at
 		FROM invites i
 		JOIN contacts c ON c.id = i.contact_id
 		WHERE i.event_id = $1

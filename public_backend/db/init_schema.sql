@@ -24,6 +24,7 @@ CREATE TABLE public.invites (
 	additional_guests int DEFAULT 0 NULL,
 	event_id integer REFERENCES events (id),
 	contact_id integer REFERENCES contacts (id),
+	opened_at TIMESTAMPTZ NULL,
 	CONSTRAINT invites_pk PRIMARY KEY (id)
 );
 

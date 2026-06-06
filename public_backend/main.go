@@ -94,6 +94,12 @@ func (env *Env) getInviteByID(c *gin.Context) {
 		return
 	}
 
+	// Record first open without blocking the response.
+	_, _ = env.db.Exec(
+		"UPDATE invites SET opened_at = NOW() WHERE id = $1 AND opened_at IS NULL",
+		id,
+	)
+
 	coInvitees := []CoInvitee{}
 	coSQL := `
 		SELECT

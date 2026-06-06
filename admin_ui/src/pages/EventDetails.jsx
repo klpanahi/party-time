@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getEvent, updateEvent, addInvitee, sendMessage, getContacts } from '../api'
-import { toDatetimeLocal } from '../dateUtils'
+import { toDatetimeLocal, formatDateShort } from '../dateUtils'
 
 export default function EventDetails() {
   const { id } = useParams()
@@ -133,6 +133,7 @@ export default function EventDetails() {
                   <th>Phone</th>
                   <th>RSVP</th>
                   <th>+Guests</th>
+                  <th>Opened</th>
                   <th>Invite Link</th>
                 </tr>
               </thead>
@@ -143,6 +144,10 @@ export default function EventDetails() {
                     <td className="mono">{inv.phone_number}</td>
                     <td><RSVPBadge status={inv.rsvp_status} /></td>
                     <td>{inv.additional_guests > 0 ? `+${inv.additional_guests}` : '—'}</td>
+                    <td>{inv.opened_at
+                      ? <span className="opened-at">{formatDateShort(inv.opened_at)}</span>
+                      : <span className="not-opened">Not yet</span>}
+                    </td>
                     <td><InviteLink url={inv.invite_url} /></td>
                   </tr>
                 ))}

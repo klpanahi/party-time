@@ -27,15 +27,16 @@ type Contact struct {
 }
 
 type InviteWithContact struct {
-	ID               string `db:"id"               json:"id"`
-	RSVPStatus       string `db:"attending"        json:"rsvp_status"`
-	AdditionalGuests int    `db:"additional_guests" json:"additional_guests"`
-	EventID          int    `db:"event_id"         json:"event_id"`
-	ContactID        int    `db:"contact_id"       json:"contact_id"`
-	FirstName        string `db:"first_name"       json:"first_name"`
-	LastName         string `db:"last_name"        json:"last_name"`
-	PhoneNumber      string `db:"phone_number"     json:"phone_number"`
-	InviteURL        string `db:"-"                json:"invite_url"`
+	ID               string     `db:"id"               json:"id"`
+	RSVPStatus       string     `db:"attending"        json:"rsvp_status"`
+	AdditionalGuests int        `db:"additional_guests" json:"additional_guests"`
+	EventID          int        `db:"event_id"         json:"event_id"`
+	ContactID        int        `db:"contact_id"       json:"contact_id"`
+	FirstName        string     `db:"first_name"       json:"first_name"`
+	LastName         string     `db:"last_name"        json:"last_name"`
+	PhoneNumber      string     `db:"phone_number"     json:"phone_number"`
+	OpenedAt         *time.Time `db:"opened_at"        json:"opened_at"`
+	InviteURL        string     `db:"-"                json:"invite_url"`
 }
 
 type EventSummary struct {
