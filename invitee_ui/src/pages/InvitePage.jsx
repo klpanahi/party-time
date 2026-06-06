@@ -18,6 +18,16 @@ async function saveRSVP(id, rsvp_status, additional_guests) {
   if (!res.ok) throw new Error('Failed to save')
 }
 
+function formatEventDate(isoString) {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  if (isNaN(d)) return isoString
+  return d.toLocaleString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  })
+}
+
 const RSVP_OPTIONS = [
   { value: 'Accepted',    label: 'Attending',     icon: '✓' },
   { value: 'Tentative',   label: 'Maybe',         icon: '?' },
@@ -98,7 +108,7 @@ export default function InvitePage() {
 
         {/* Event details */}
         <div className="event-details">
-          <DetailRow icon="📅" text={invite.event_date} />
+          <DetailRow icon="📅" text={formatEventDate(invite.event_date)} />
           <DetailRow icon="📍" text={invite.event_location} />
           {invite.event_description && (
             <DetailRow icon="📝" text={invite.event_description} />

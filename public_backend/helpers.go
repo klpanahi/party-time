@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 func getenv(key, fallback string) string {
@@ -11,6 +12,16 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// parseCentralTime parses a datetime-local string ("2006-01-02T15:04") as
+// America/Chicago time and returns a time.Time suitable for TIMESTAMPTZ storage.
+func parseCentralTime(s string) (time.Time, error) {
+	loc, err := time.LoadLocation("America/Chicago")
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.ParseInLocation("2006-01-02T15:04", s, loc)
 }
 
 func loaddbconfig() string {

@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getEvents, createEvent } from '../api'
-
-const today = new Date()
-today.setHours(0, 0, 0, 0)
+import { formatDateShort, toDatetimeLocal } from '../dateUtils'
 
 function isUpcoming(event) {
-  // Events without a parseable date stay in upcoming.
-  const d = new Date(event.date)
-  return isNaN(d) || d >= today
+  return new Date(event.date) >= new Date()
 }
 
 export default function EventSummary() {
@@ -60,9 +56,9 @@ export default function EventSummary() {
               <label>Name
                 <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </label>
-              <label>Date
-                <input required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-                  placeholder="e.g. July 4th, 2025" />
+              <label>Date &amp; Time
+                <input required type="datetime-local" value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })} />
               </label>
               <label>Description
                 <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
@@ -121,7 +117,7 @@ function EventTable({ events, onRowClick }) {
         {events.map((e) => (
           <tr key={e.id} className="clickable-row" onClick={() => onRowClick(e.id)}>
             <td className="event-name">{e.name}</td>
-            <td>{e.date}</td>
+            <td>{formatDateShort(e.date)}</td>
             <td>{e.total_invites}</td>
             <td><span className="badge badge-accepted">{e.accepted}</span></td>
             <td><span className="badge badge-tentative">{e.tentative}</span></td>

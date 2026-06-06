@@ -128,10 +128,16 @@ func (env *Env) adminCreateEvent(c *gin.Context) {
 		return
 	}
 
+	date, err := parseCentralTime(req.Date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, expected YYYY-MM-DDTHH:MM"})
+		return
+	}
+
 	var id int
 	sql := `INSERT INTO events (name, date, description, location, plus_ones_allowed)
 	        VALUES ($1, $2, $3, $4, $5) RETURNING id`
-	if err := env.db.QueryRow(sql, req.Name, req.Date, req.Description, req.Location, req.PlusOnesAllowed).Scan(&id); err != nil {
+	if err := env.db.QueryRow(sql, req.Name, date, req.Description, req.Location, req.PlusOnesAllowed).Scan(&id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -149,8 +155,14 @@ func (env *Env) adminUpdateEvent(c *gin.Context) {
 		return
 	}
 
+	date, err := parseCentralTime(req.Date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, expected YYYY-MM-DDTHH:MM"})
+		return
+	}
+
 	sql := `UPDATE events SET name=$1, date=$2, description=$3, location=$4, plus_ones_allowed=$5 WHERE id=$6`
-	if _, err := env.db.Exec(sql, req.Name, req.Date, req.Description, req.Location, req.PlusOnesAllowed, id); err != nil {
+	if _, err := env.db.Exec(sql, req.Name, date, req.Description, req.Location, req.PlusOnesAllowed, id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

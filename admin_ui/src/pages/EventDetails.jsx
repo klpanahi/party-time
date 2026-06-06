@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getEvent, updateEvent, addInvitee, sendMessage, getContacts } from '../api'
+import { toDatetimeLocal } from '../dateUtils'
 
 export default function EventDetails() {
   const { id } = useParams()
@@ -83,8 +84,9 @@ export default function EventDetails() {
           <label>Name
             <input value={event.name} onChange={(e) => updateField('name', e.target.value)} />
           </label>
-          <label>Date
-            <input value={event.date} onChange={(e) => updateField('date', e.target.value)} />
+          <label>Date &amp; Time
+            <input type="datetime-local" value={toDatetimeLocal(event.date)}
+              onChange={(e) => updateField('date', e.target.value)} />
           </label>
           <label>Location
             <input value={event.location} onChange={(e) => updateField('location', e.target.value)} />

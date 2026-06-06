@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type Invite struct {
 	ID               string `db:"id"`
 	RSVP_Status      string `db:"attending"`
@@ -9,12 +11,12 @@ type Invite struct {
 }
 
 type Event struct {
-	ID               string `db:"id"               json:"id"`
-	Event_Name       string `db:"name"             json:"name"`
-	Date             string `db:"date"             json:"date"`
-	Description      string `db:"description"      json:"description"`
-	Location         string `db:"location"         json:"location"`
-	Plus_Ones_Allowed bool  `db:"plus_ones_allowed" json:"plus_ones_allowed"`
+	ID                string    `db:"id"               json:"id"`
+	Event_Name        string    `db:"name"             json:"name"`
+	Date              time.Time `db:"date"             json:"date"`
+	Description       string    `db:"description"      json:"description"`
+	Location          string    `db:"location"         json:"location"`
+	Plus_Ones_Allowed bool      `db:"plus_ones_allowed" json:"plus_ones_allowed"`
 }
 
 type Contact struct {
@@ -37,9 +39,9 @@ type InviteWithContact struct {
 }
 
 type EventSummary struct {
-	ID           int    `db:"id"            json:"id"`
-	Name         string `db:"name"          json:"name"`
-	Date         string `db:"date"          json:"date"`
+	ID           int       `db:"id"            json:"id"`
+	Name         string    `db:"name"          json:"name"`
+	Date         time.Time `db:"date"          json:"date"`
 	TotalInvites int    `db:"total_invites" json:"total_invites"`
 	Accepted     int    `db:"accepted"      json:"accepted"`
 	Tentative    int    `db:"tentative"     json:"tentative"`
@@ -89,7 +91,7 @@ type InvitePageData struct {
 	FirstName        string `db:"first_name"        json:"first_name"`
 	LastName         string `db:"last_name"         json:"last_name"`
 	EventName        string `db:"event_name"        json:"event_name"`
-	EventDate        string `db:"event_date"        json:"event_date"`
+	EventDate        time.Time `db:"event_date"      json:"event_date"`
 	EventDescription string `db:"event_description" json:"event_description"`
 	EventLocation    string `db:"event_location"    json:"event_location"`
 	PlusOnesAllowed  bool   `db:"plus_ones_allowed" json:"plus_ones_allowed"`
