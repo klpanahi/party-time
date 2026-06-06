@@ -14,7 +14,8 @@ services:
       - "5432:5432"
     volumes:
       # Mount the SQL script from the host to the container's init directory
-      - ./db/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql
+      - ./db/init_schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql
+      - ./db/02_messages_schema.sql:/docker-entrypoint-initdb.d/02_messages_schema.sql
       # Persist the actual database data in a named volume
       - pgdata:/var/lib/postgresql/data
 

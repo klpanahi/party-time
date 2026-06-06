@@ -11,7 +11,8 @@ import (
 )
 
 type Env struct {
-	db *sqlx.DB
+	db          *sqlx.DB
+	inviteeBase string
 }
 
 func main() {
@@ -23,7 +24,10 @@ func main() {
 		fmt.Println("Error!")
 		panic(err)
 	}
-	env := &Env{db: db}
+	env := &Env{
+		db:          db,
+		inviteeBase: getenv("INVITEE_BASE_URL", "http://localhost:5174"),
+	}
 
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:5174"},

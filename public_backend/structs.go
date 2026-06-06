@@ -33,6 +33,7 @@ type InviteWithContact struct {
 	FirstName        string `db:"first_name"       json:"first_name"`
 	LastName         string `db:"last_name"        json:"last_name"`
 	PhoneNumber      string `db:"phone_number"     json:"phone_number"`
+	InviteURL        string `db:"-"                json:"invite_url"`
 }
 
 type EventSummary struct {

@@ -114,6 +114,10 @@ func (env *Env) adminGetEvent(c *gin.Context) {
 		return
 	}
 
+	for i := range invitees {
+		invitees[i].InviteURL = fmt.Sprintf("%s/invite/%d", env.inviteeBase, invitees[i].ID)
+	}
+
 	c.JSON(http.StatusOK, EventDetail{Event: event, Invitees: invitees})
 }
 

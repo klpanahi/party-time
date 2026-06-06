@@ -393,6 +393,38 @@ body {
 
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 
+.invite-link-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.invite-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  display: block;
+}
+.invite-link:hover { text-decoration: underline; }
+
+.copy-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.copy-btn:hover { background: var(--bg); color: var(--text); }
+
 .action-cell { width: 60px; text-align: right; }
 
 .text-muted { color: var(--text-muted); }

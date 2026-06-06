@@ -126,6 +126,7 @@ export default function EventDetails() {
                   <th>Phone</th>
                   <th>RSVP</th>
                   <th>+Guests</th>
+                  <th>Invite Link</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,6 +136,7 @@ export default function EventDetails() {
                     <td className="mono">{inv.phone_number}</td>
                     <td><RSVPBadge status={inv.rsvp_status} /></td>
                     <td>{inv.additional_guests > 0 ? `+${inv.additional_guests}` : '—'}</td>
+                    <td><InviteLink url={inv.invite_url} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -284,6 +286,26 @@ function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
           </form>
         )}
       </div>
+    </div>
+  )
+}
+
+function InviteLink({ url }) {
+  const [copied, setCopied] = useState(false)
+
+  function copy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="invite-link-cell">
+      <a href={url} target="_blank" rel="noreferrer" className="invite-link mono">{url}</a>
+      <button className="copy-btn" onClick={copy} title="Copy link">
+        {copied ? '✓' : 'Copy'}
+      </button>
     </div>
   )
 }
