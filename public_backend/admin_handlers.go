@@ -115,7 +115,7 @@ func (env *Env) adminGetEvent(c *gin.Context) {
 	}
 
 	for i := range invitees {
-		invitees[i].InviteURL = fmt.Sprintf("%s/invite/%d", env.inviteeBase, invitees[i].ID)
+		invitees[i].InviteURL = fmt.Sprintf("%s/invite/%s", env.inviteeBase, invitees[i].ID)
 	}
 
 	c.JSON(http.StatusOK, EventDetail{Event: event, Invitees: invitees})
@@ -189,7 +189,7 @@ func (env *Env) adminAddInvitee(c *gin.Context) {
 		}
 	}
 
-	var inviteID int
+	var inviteID string
 	insertInvite := `INSERT INTO invites (event_id, contact_id) VALUES ($1, $2) RETURNING id`
 	if err := env.db.QueryRow(insertInvite, eventID, contactID).Scan(&inviteID); err != nil {
 		fmt.Println(err)

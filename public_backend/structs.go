@@ -25,7 +25,7 @@ type Contact struct {
 }
 
 type InviteWithContact struct {
-	ID               int    `db:"id"               json:"id"`
+	ID               string `db:"id"               json:"id"`
 	RSVPStatus       string `db:"attending"        json:"rsvp_status"`
 	AdditionalGuests int    `db:"additional_guests" json:"additional_guests"`
 	EventID          int    `db:"event_id"         json:"event_id"`
@@ -81,7 +81,7 @@ type SendMessageRequest struct {
 }
 
 type InvitePageData struct {
-	InviteID         int    `db:"id"                json:"invite_id"`
+	InviteID         string `db:"id"                json:"invite_id"`
 	RSVPStatus       string `db:"attending"         json:"rsvp_status"`
 	AdditionalGuests int    `db:"additional_guests" json:"additional_guests"`
 	EventID          int    `db:"event_id"          json:"event_id"`

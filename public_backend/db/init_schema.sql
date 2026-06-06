@@ -19,7 +19,7 @@ CREATE TABLE public.events (
 
 
 CREATE TABLE public.invites (
-	id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	attending varchar DEFAULT 'No Response' NULL,
 	additional_guests int DEFAULT 0 NULL,
 	event_id integer REFERENCES events (id),
