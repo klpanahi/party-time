@@ -94,6 +94,7 @@ export default function InvitePage() {
     )
   }
 
+  const isPast = new Date(invite.event_date) < new Date()
   const declined = rsvp === 'Declined'
 
   return (
@@ -117,51 +118,59 @@ export default function InvitePage() {
 
         <hr className="divider" />
 
-        {/* RSVP */}
-        <div className="rsvp-section">
-          <p className="section-label">Will you be there?</p>
-          <div className="rsvp-buttons">
-            {RSVP_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                className={`rsvp-btn rsvp-${opt.value.toLowerCase()} ${rsvp === opt.value ? 'selected' : ''}`}
-                onClick={() => handleRSVP(opt.value)}
-              >
-                <span className="rsvp-icon">{opt.icon}</span>
-                <span className="rsvp-label">{opt.label}</span>
-              </button>
-            ))}
+        {isPast ? (
+          <div className="past-notice">
+            This event has already taken place. Your RSVP can no longer be modified.
           </div>
-        </div>
-
-        {/* Plus ones — only show if allowed and not declined */}
-        {invite.plus_ones_allowed && !declined && (
+        ) : (
           <>
-            <hr className="divider" />
-            <div className="guests-section">
-              <p className="section-label">Additional guests</p>
-              <div className="guest-counter">
-                <button
-                  className="counter-btn"
-                  onClick={() => handleGuestChange(-1)}
-                  disabled={guests === 0}
-                >−</button>
-                <span className="guest-count">{guests}</span>
-                <button
-                  className="counter-btn"
-                  onClick={() => handleGuestChange(1)}
-                >+</button>
+            {/* RSVP */}
+            <div className="rsvp-section">
+              <p className="section-label">Will you be there?</p>
+              <div className="rsvp-buttons">
+                {RSVP_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={`rsvp-btn rsvp-${opt.value.toLowerCase()} ${rsvp === opt.value ? 'selected' : ''}`}
+                    onClick={() => handleRSVP(opt.value)}
+                  >
+                    <span className="rsvp-icon">{opt.icon}</span>
+                    <span className="rsvp-label">{opt.label}</span>
+                  </button>
+                ))}
               </div>
+            </div>
+
+            {/* Plus ones — only show if allowed and not declined */}
+            {invite.plus_ones_allowed && !declined && (
+              <>
+                <hr className="divider" />
+                <div className="guests-section">
+                  <p className="section-label">Additional guests</p>
+                  <div className="guest-counter">
+                    <button
+                      className="counter-btn"
+                      onClick={() => handleGuestChange(-1)}
+                      disabled={guests === 0}
+                    >−</button>
+                    <span className="guest-count">{guests}</span>
+                    <button
+                      className="counter-btn"
+                      onClick={() => handleGuestChange(1)}
+                    >+</button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Save status */}
+            <div className="save-status" aria-live="polite">
+              {status === 'saving' && <span className="status-saving">Saving…</span>}
+              {status === 'saved'  && <span className="status-saved">Saved ✓</span>}
+              {status === 'error'  && <span className="status-error">Couldn't save, try again</span>}
             </div>
           </>
         )}
-
-        {/* Save status */}
-        <div className="save-status" aria-live="polite">
-          {status === 'saving' && <span className="status-saving">Saving…</span>}
-          {status === 'saved'  && <span className="status-saved">Saved ✓</span>}
-          {status === 'error'  && <span className="status-error">Couldn't save, try again</span>}
-        </div>
 
       </div>
     </div>

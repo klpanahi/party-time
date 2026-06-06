@@ -213,6 +213,18 @@ body {
 .status-saved  { color: #16a34a; font-weight: 500; }
 .status-error  { color: #dc2626; }
 
+/* Past event notice */
+.past-notice {
+  margin: 4px 28px 24px;
+  padding: 14px 16px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 /* Loading / error states */
 .loading-pulse {
   margin-top: 80px;
