@@ -18,6 +18,8 @@ export default function EventDetails() {
   const [texts, setTexts] = useState(null)
   const [textsError, setTextsError] = useState(null)
   const saveTimer = useRef(null)
+  const messageRef = useRef(null)
+  const messageSectionRef = useRef(null)
 
   useEffect(() => {
     getEvent(id)
@@ -90,6 +92,15 @@ export default function EventDetails() {
     }
   }
 
+  function handleNotifyChanges() {
+    setMessageContent("Heads up — some event details have been updated. Check your invite link for the latest info.")
+    setActiveTab('invitees')
+    setTimeout(() => {
+      messageSectionRef.current?.scrollIntoView({ behavior: 'smooth' })
+      messageRef.current?.focus()
+    }, 50)
+  }
+
   async function handleSendMessage(ev) {
     ev.preventDefault()
     if (!messageContent.trim()) return
@@ -141,7 +152,14 @@ export default function EventDetails() {
 
       {/* Event Details */}
       <section className="card">
-        <h2 className="card-title">Event Details</h2>
+        <div className="card-header-row">
+          <h2 className="card-title">Event Details</h2>
+          {event.status === 'launched' && (
+            <button className="btn-ghost" onClick={handleNotifyChanges}>
+              Notify invitees of changes
+            </button>
+          )}
+        </div>
         <div className="form">
           <label>Name
             <input value={event.name} onChange={(e) => updateField('name', e.target.value)} />
@@ -230,11 +248,12 @@ export default function EventDetails() {
               )}
           </section>
 
-          <section className="card">
+          <section className="card" ref={messageSectionRef}>
             <h2 className="card-title">Send a Message</h2>
-            <p className="hint">Message will be sent to all invitees who haven't declined.</p>
+            <p className="hint">Message will be sent to all invitees who haven't declined. Each message will automatically include their personal RSVP link.</p>
             <form onSubmit={handleSendMessage} className="message-form">
               <textarea
+                ref={messageRef}
                 value={messageContent}
                 onChange={(e) => setMessageContent(e.target.value)}
                 placeholder="Type your message…"
