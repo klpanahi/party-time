@@ -1,0 +1,35 @@
+Codemap Generation Report — 2026-06-11
+=======================================
+
+Status: INITIAL GENERATION (no prior codemaps existed)
+
+Files Scanned: ~30 source files across 3 sub-projects
+
+## Codemaps Created
+  docs/CODEMAPS/architecture.md  — system diagram, service boundaries, event lifecycle
+  docs/CODEMAPS/backend.md       — all API routes, handler mapping, env vars
+  docs/CODEMAPS/frontend.md      — page trees, API layer, test setup for both UIs
+  docs/CODEMAPS/data.md          — full schema, relationships, migration history
+  docs/CODEMAPS/dependencies.md  — external libs and infrastructure
+
+## Architecture Summary
+- Monorepo: Go/Gin backend + React admin UI + React invitee UI
+- Single backend binary, admin routes gated by ADMIN_ENABLED env var
+- PostgreSQL primary store, texts table queues outbound SMS
+
+## Recent Feature Activity (from git log)
+  79710f8  Adding vite tests to invitee_ui
+  94fcaf0  Adding backend tests
+  68ea614  First stage of messaging functionality
+  fe8868e  Updating AGENT.md's
+  69207f1  Add tracking so you know if the invite was opened
+
+## New Capabilities Since Last Scan
+  - messages + texts tables added (messaging feature)
+  - invites.opened_at tracking
+  - events.status lifecycle (draft → launched)
+  - adminSendMessage, adminLaunchEvent, adminGetTexts endpoints
+  - adminAddInvitee auto-queues invite text if event already launched
+
+## Staleness Warnings
+  None — initial generation.
