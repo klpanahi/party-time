@@ -22,7 +22,10 @@ party-time/
 ├── public_backend/     Go/Gin API server (serves both UIs)
 ├── admin_ui/           React admin portal (event & contact mgmt)
 ├── invitee_ui/         React invitee portal (RSVP page)
-└── design.md           Product design doc
+├── schema.sql          Canonical DB schema + sample data (single source of truth)
+├── docker-compose.yml  Local PostgreSQL container
+├── run_local.sh        Starts all three services at once
+└── AGENT.md            Project-wide developer guide
 ```
 
 ## Data Flow: Event Lifecycle

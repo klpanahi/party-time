@@ -1,35 +1,28 @@
-Codemap Generation Report — 2026-06-11
-=======================================
+Codemap Diff Report — 2026-06-11 (update #3)
+=============================================
 
-Status: INITIAL GENERATION (no prior codemaps existed)
+## Since Last Scan (update #2)
 
-Files Scanned: ~30 source files across 3 sub-projects
+### Files Modified
+- public_backend/setup_test.go  — added pastDate() helper alongside futureDate()
+- public_backend/coverage.out   — new untracked file (generated; not tracked in codemaps)
+- invitee_ui/coverage/*.html    — generated coverage reports (not tracked in codemaps)
 
-## Codemaps Created
-  docs/CODEMAPS/architecture.md  — system diagram, service boundaries, event lifecycle
-  docs/CODEMAPS/backend.md       — all API routes, handler mapping, env vars
-  docs/CODEMAPS/frontend.md      — page trees, API layer, test setup for both UIs
-  docs/CODEMAPS/data.md          — full schema, relationships, migration history
-  docs/CODEMAPS/dependencies.md  — external libs and infrastructure
+### Codemaps Updated
+- docs/CODEMAPS/backend.md — expanded handlers_test.go entry to list all 9 test suites
+                              (TestContacts, TestEvents, TestAddInvitee, TestLaunchEvent,
+                               TestInviteeOrdering, TestSendMessage, TestGetTexts,
+                               TestGetInvite, TestUpdateInvite);
+                              expanded setup_test.go entry to document seed helpers
 
-## Architecture Summary
-- Monorepo: Go/Gin backend + React admin UI + React invitee UI
-- Single backend binary, admin routes gated by ADMIN_ENABLED env var
-- PostgreSQL primary store, texts table queues outbound SMS
+### No Changes Needed
+- docs/CODEMAPS/architecture.md
+- docs/CODEMAPS/frontend.md
+- docs/CODEMAPS/data.md
+- docs/CODEMAPS/dependencies.md
 
-## Recent Feature Activity (from git log)
-  79710f8  Adding vite tests to invitee_ui
-  94fcaf0  Adding backend tests
-  68ea614  First stage of messaging functionality
-  fe8868e  Updating AGENT.md's
-  69207f1  Add tracking so you know if the invite was opened
+### Architecture Changes
+None — no new routes, services, or tables since update #2.
 
-## New Capabilities Since Last Scan
-  - messages + texts tables added (messaging feature)
-  - invites.opened_at tracking
-  - events.status lifecycle (draft → launched)
-  - adminSendMessage, adminLaunchEvent, adminGetTexts endpoints
-  - adminAddInvitee auto-queues invite text if event already launched
-
-## Staleness Warnings
-  None — initial generation.
+### Staleness Warnings
+None — all codemaps current as of 2026-06-11.

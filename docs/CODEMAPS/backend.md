@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-11 | Files scanned: 8 | Token estimate: ~550 -->
+<!-- Generated: 2026-06-11 | Files scanned: 8 | Token estimate: ~600 -->
 
 # Backend
 
@@ -37,8 +37,11 @@ public_backend/main.go            router setup, public handlers, Env struct (120
 public_backend/admin_handlers.go  admin route handlers + buildInviteMessage (357 lines)
 public_backend/structs.go         all request/response/DB structs (139 lines)
 public_backend/helpers.go         getenv, loaddbconfig, parseCentralTime
-public_backend/handlers_test.go   integration tests
-public_backend/setup_test.go      test DB setup
+public_backend/handlers_test.go   integration tests: TestContacts, TestEvents (incl. update), TestAddInvitee,
+                                   TestLaunchEvent, TestInviteeOrdering, TestSendMessage, TestGetTexts,
+                                   TestGetInvite, TestUpdateInvite
+public_backend/setup_test.go      test DB setup — loads ../schema.sql via os.ReadFile; seed helpers:
+                                   seedContact, seedEvent, seedInvite, cleanDB, futureDate, pastDate
 ```
 
 ## Environment Variables

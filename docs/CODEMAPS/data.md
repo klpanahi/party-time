@@ -50,14 +50,8 @@ contacts ──< texts
 events   ──< messages ──< texts
 ```
 
-## Migration History
-```
-init_schema.sql          contacts, events, invites + seed data
-02_messages_schema.sql   messages, texts tables
-03_invite_opened_at.sql  ADD COLUMN invites.opened_at
-04_event_status.sql      ADD COLUMN events.status DEFAULT 'draft'
-05_texts_improvements.sql texts.content column (for invite texts without a message record)
-```
+## Schema File
+`schema.sql` (repo root) — single consolidated DDL file; all tables in dependency order, sample data at the end. No separate migration files (boilerplate stage; data retention not required).
 
 ## Notes
 - Invite IDs are UUIDs — safe to embed in SMS links

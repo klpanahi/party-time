@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	_ "embed"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -16,12 +15,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
-
-//go:embed db/init_schema.sql
-var initSchemaSQL string
-
-//go:embed db/02_messages_schema.sql
-var messagesSchemaSQL string
 
 var (
 	testEnv *Env
@@ -54,8 +47,11 @@ func TestMain(m *testing.M) {
 	mustExec(testDB, `DROP SCHEMA public CASCADE`)
 	mustExec(testDB, `CREATE SCHEMA public`)
 	mustExec(testDB, `GRANT ALL ON SCHEMA public TO myuser`)
-	mustExec(testDB, initSchemaSQL)
-	mustExec(testDB, messagesSchemaSQL)
+	schemaSQL, err := os.ReadFile("../schema.sql")
+	if err != nil {
+		log.Fatalf("read schema: %v", err)
+	}
+	mustExec(testDB, string(schemaSQL))
 
 	testEnv = &Env{db: testDB, inviteeBase: "http://test.local"}
 

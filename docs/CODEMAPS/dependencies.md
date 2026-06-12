@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-11 | Files scanned: 3 | Token estimate: ~200 -->
+<!-- Generated: 2026-06-11 | Files scanned: 3 | Token estimate: ~220 -->
 
 # Dependencies
 
@@ -16,8 +16,12 @@ react / react-dom ^19.2.6             UI framework
 react-router-dom ^7.17.0             Client-side routing
 vite ^8.0.12                         Build tool / dev server
 vitest ^4.1.8                        Test runner
+@vitest/coverage-v8 ^4.1.8           Coverage reporter
 @testing-library/react ^16.3.2       Component testing
+@testing-library/jest-dom ^6.9.1     Custom matchers (toBeInTheDocument, etc.)
+@testing-library/user-event ^14.6.1  User interaction simulation
 msw ^2.14.6                          API mocking in tests
+jsdom ^27.0.1                        Browser environment for Vitest
 ```
 
 ## Invitee UI (npm)
@@ -30,5 +34,5 @@ SMS provider  Texts queued in `texts` table (external delivery not in this repo)
 ```
 
 ## Dev Tools
-`public_backend/docker-compose.yml` — local Postgres
-`dev.sh` — starts all three services (backend + both UIs)
+`docker-compose.yml` (repo root) — local Postgres
+`run_local.sh` (repo root) — starts all three services (backend + both UIs)
