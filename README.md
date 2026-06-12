@@ -10,6 +10,12 @@ This should all be done from the `public_backed` working directory
 docker compose up
 ```
 
+### Whipe database completly when shutting down
+
+```
+docker-compose down --volumes
+```
+
 ### Start the Gin Server
 
 ```

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -64,7 +65,7 @@ func (env *Env) adminGetEvents(c *gin.Context) {
 	events := []EventSummary{}
 	sql := `
 		SELECT
-			e.id, e.name, e.date,
+			e.id, e.name, e.date, e.status,
 			COUNT(i.id)                                                         AS total_invites,
 			SUM(CASE WHEN i.attending = 'Accepted'    THEN 1 ELSE 0 END)       AS accepted,
 			SUM(CASE WHEN i.attending = 'Tentative'   THEN 1 ELSE 0 END)       AS tentative,
@@ -209,6 +210,24 @@ func (env *Env) adminAddInvitee(c *gin.Context) {
 		return
 	}
 
+	// If the event is already launched, immediately queue an invite text for the new invitee.
+	var eventStatus string
+	if err := env.db.QueryRow("SELECT status FROM events WHERE id = $1", eventID).Scan(&eventStatus); err == nil && eventStatus == "launched" {
+		event := Event{}
+		if err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1", eventID); err == nil {
+			var firstName string
+			_ = env.db.QueryRow("SELECT first_name FROM contacts WHERE id = $1", contactID).Scan(&firstName)
+			inviteURL := fmt.Sprintf("%s/invite/%s", env.inviteeBase, inviteID)
+			loc, _ := time.LoadLocation("America/Chicago")
+			formattedDate := event.Date.In(loc).Format("Monday, January 2, 2006 at 3:04 PM")
+			content := buildInviteMessage(firstName, event.Event_Name, formattedDate, event.Location, event.Description, inviteURL)
+			_, _ = env.db.Exec(
+				`INSERT INTO texts (contact_id, content, event_id, status) VALUES ($1, $2, $3, 'pending')`,
+				contactID, content, eventID,
+			)
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"invite_id": inviteID, "contact_id": contactID})
 }
 
@@ -232,8 +251,8 @@ func (env *Env) adminSendMessage(c *gin.Context) {
 
 	// Create pending texts for all non-declined invitees.
 	insertTexts := `
-		INSERT INTO texts (contact_id, message_id, status)
-		SELECT i.contact_id, $1, 'pending'
+		INSERT INTO texts (contact_id, message_id, event_id, status)
+		SELECT i.contact_id, $1, $2, 'pending'
 		FROM invites i
 		WHERE i.event_id = $2 AND i.attending != 'Declined'`
 	result, err := env.db.Exec(insertTexts, messageID, eventID)
@@ -245,4 +264,93 @@ func (env *Env) adminSendMessage(c *gin.Context) {
 
 	count, _ := result.RowsAffected()
 	c.JSON(http.StatusCreated, gin.H{"message_id": messageID, "texts_queued": count})
+}
+
+func (env *Env) adminLaunchEvent(c *gin.Context) {
+	eventID := c.Param("id")
+
+	event := Event{}
+	if err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1", eventID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return
+	}
+
+	if event.Status != "draft" {
+		c.JSON(http.StatusConflict, gin.H{"error": "event has already been launched"})
+		return
+	}
+
+	type launchInvitee struct {
+		InviteID  string `db:"invite_id"`
+		ContactID int    `db:"contact_id"`
+		FirstName string `db:"first_name"`
+	}
+	rows := []launchInvitee{}
+	sel := `
+		SELECT i.id AS invite_id, i.contact_id, c.first_name
+		FROM invites i JOIN contacts c ON c.id = i.contact_id
+		WHERE i.event_id = $1`
+	if err := env.db.Select(&rows, sel, eventID); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(rows) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot launch an event with no invitees"})
+		return
+	}
+
+	loc, _ := time.LoadLocation("America/Chicago")
+	formattedDate := event.Date.In(loc).Format("Monday, January 2, 2006 at 3:04 PM")
+
+	for _, row := range rows {
+		inviteURL := fmt.Sprintf("%s/invite/%s", env.inviteeBase, row.InviteID)
+		content := buildInviteMessage(row.FirstName, event.Event_Name, formattedDate, event.Location, event.Description, inviteURL)
+		if _, err := env.db.Exec(
+			`INSERT INTO texts (contact_id, content, event_id, status) VALUES ($1, $2, $3, 'pending')`,
+			row.ContactID, content, eventID,
+		); err != nil {
+			fmt.Println(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if _, err := env.db.Exec("UPDATE events SET status = 'launched' WHERE id = $1", eventID); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "texts_queued": len(rows)})
+}
+
+func (env *Env) adminGetTexts(c *gin.Context) {
+	eventID := c.Param("id")
+
+	texts := []TextWithContact{}
+	sql := `
+		SELECT
+			t.id, t.status, t.created_at,
+			COALESCE(t.content, m.content, '') AS content,
+			c.first_name, c.last_name, c.phone_number
+		FROM texts t
+		JOIN contacts c ON c.id = t.contact_id
+		LEFT JOIN messages m ON m.id = t.message_id
+		WHERE t.event_id = $1
+		ORDER BY t.created_at DESC`
+	if err := env.db.Select(&texts, sql, eventID); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, texts)
+}
+
+func buildInviteMessage(firstName, eventName, formattedDate, location, description, inviteURL string) string {
+	return fmt.Sprintf(
+		"Hey %s!\n\nYou're invited to %s on %s at %s.\n\n%s\n\nManage your RSVP here: %s",
+		firstName, eventName, formattedDate, location, description, inviteURL,
+	)
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getEvent, updateEvent, addInvitee, sendMessage, getContacts } from '../api'
+import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts } from '../api'
 import { toDatetimeLocal, formatDateShort } from '../dateUtils'
 
 export default function EventDetails() {
@@ -9,9 +9,14 @@ export default function EventDetails() {
   const [detail, setDetail] = useState(null)
   const [error, setError] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState('invitees')
   const [showAddInvitee, setShowAddInvitee] = useState(false)
+  const [showLaunch, setShowLaunch] = useState(false)
+  const [launching, setLaunching] = useState(false)
   const [messageContent, setMessageContent] = useState('')
   const [sending, setSending] = useState(false)
+  const [texts, setTexts] = useState(null)
+  const [textsError, setTextsError] = useState(null)
   const saveTimer = useRef(null)
 
   useEffect(() => {
@@ -22,6 +27,15 @@ export default function EventDetails() {
       }))
       .catch((e) => setError(e.message))
   }, [id])
+
+  useEffect(() => {
+    if (activeTab === 'messages') {
+      setTextsError(null)
+      getTexts(id)
+        .then(setTexts)
+        .catch((e) => setTextsError(e.message))
+    }
+  }, [activeTab, id])
 
   function scheduleAutoSave(updatedEvent) {
     clearTimeout(saveTimer.current)
@@ -52,8 +66,28 @@ export default function EventDetails() {
 
   async function handleInviteeAdded() {
     const fresh = await getEvent(id)
-    setDetail(fresh)
+    setDetail({
+      ...fresh,
+      event: { ...fresh.event, date: toDatetimeLocal(fresh.event.date) },
+    })
     setShowAddInvitee(false)
+  }
+
+  async function handleLaunch() {
+    setLaunching(true)
+    try {
+      await launchEvent(id)
+      setDetail((prev) => ({ ...prev, event: { ...prev.event, status: 'launched' } }))
+      setShowLaunch(false)
+      // Refresh texts if the tab is already open
+      if (activeTab === 'messages') {
+        getTexts(id).then(setTexts).catch((e) => setTextsError(e.message))
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLaunching(false)
+    }
   }
 
   async function handleSendMessage(ev) {
@@ -63,6 +97,10 @@ export default function EventDetails() {
     try {
       await sendMessage(id, messageContent)
       setMessageContent('')
+      // Refresh texts list if that tab is open
+      if (activeTab === 'messages') {
+        getTexts(id).then(setTexts).catch((e) => setTextsError(e.message))
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -79,10 +117,29 @@ export default function EventDetails() {
     <div className="page">
       <header className="page-header">
         <button className="btn-ghost" onClick={() => navigate('/')}>← Back</button>
-        {saved && <span className="save-indicator">Saved</span>}
+        <div className="header-right">
+          {saved && <span className="save-indicator">Saved</span>}
+          <span className={`status-badge status-${event.status}`}>
+            {event.status === 'draft' ? 'Draft' : 'Launched'}
+          </span>
+          {event.status === 'draft' && (
+            <button className="btn-launch" onClick={() => setShowLaunch(true)}>
+              Launch Event
+            </button>
+          )}
+        </div>
       </header>
 
-      {/* Event Details Block */}
+      {showLaunch && (
+        <LaunchModal
+          inviteeCount={invitees.length}
+          launching={launching}
+          onConfirm={handleLaunch}
+          onClose={() => setShowLaunch(false)}
+        />
+      )}
+
+      {/* Event Details */}
       <section className="card">
         <h2 className="card-title">Event Details</h2>
         <div className="form">
@@ -107,71 +164,197 @@ export default function EventDetails() {
         </div>
       </section>
 
-      {/* Invitees Block */}
+      {/* Tabs */}
+      <div className="page-tabs">
+        <button
+          className={`page-tab ${activeTab === 'invitees' ? 'active' : ''}`}
+          onClick={() => setActiveTab('invitees')}
+        >
+          Invitees ({invitees.length})
+        </button>
+        <button
+          className={`page-tab ${activeTab === 'messages' ? 'active' : ''}`}
+          onClick={() => setActiveTab('messages')}
+        >
+          Messages
+        </button>
+      </div>
+
+      {activeTab === 'invitees' && (
+        <>
+          <section className="card">
+            <div className="card-header-row">
+              <h2 className="card-title">Invitees ({invitees.length})</h2>
+              <button className="btn-primary" onClick={() => setShowAddInvitee(true)}>+ Add Invitee</button>
+            </div>
+
+            {showAddInvitee && (
+              <AddInviteeModal
+                eventId={id}
+                alreadyInvited={invitees.map((i) => i.contact_id)}
+                onAdded={handleInviteeAdded}
+                onClose={() => setShowAddInvitee(false)}
+              />
+            )}
+
+            {invitees.length === 0
+              ? <p className="empty">No invitees yet.</p>
+              : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Phone</th>
+                      <th>RSVP</th>
+                      <th>+Guests</th>
+                      <th>Opened</th>
+                      <th>Invite Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invitees.map((inv) => (
+                      <tr key={inv.id}>
+                        <td>{inv.first_name} {inv.last_name}</td>
+                        <td className="mono">{inv.phone_number}</td>
+                        <td><RSVPBadge status={inv.rsvp_status} /></td>
+                        <td>{inv.additional_guests > 0 ? `+${inv.additional_guests}` : '—'}</td>
+                        <td>{inv.opened_at
+                          ? <span className="opened-at">{formatDateShort(inv.opened_at)}</span>
+                          : <span className="not-opened">Not yet</span>}
+                        </td>
+                        <td><InviteLink url={inv.invite_url} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+          </section>
+
+          <section className="card">
+            <h2 className="card-title">Send a Message</h2>
+            <p className="hint">Message will be sent to all invitees who haven't declined.</p>
+            <form onSubmit={handleSendMessage} className="message-form">
+              <textarea
+                value={messageContent}
+                onChange={(e) => setMessageContent(e.target.value)}
+                placeholder="Type your message…"
+                rows={4}
+              />
+              <button type="submit" className="btn-primary" disabled={sending || !messageContent.trim()}>
+                {sending ? 'Sending…' : 'Send'}
+              </button>
+            </form>
+          </section>
+        </>
+      )}
+
+      {activeTab === 'messages' && (
+        <MessagesTab texts={texts} error={textsError} />
+      )}
+    </div>
+  )
+}
+
+function MessagesTab({ texts, error }) {
+  const [expanded, setExpanded] = useState(new Set())
+
+  function toggle(id) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  if (error) return <div className="error-banner">{error}</div>
+  if (!texts) return <div className="page loading">Loading…</div>
+
+  if (texts.length === 0) {
+    return (
       <section className="card">
-        <div className="card-header-row">
-          <h2 className="card-title">Invitees ({invitees.length})</h2>
-          <button className="btn-primary" onClick={() => setShowAddInvitee(true)}>+ Add Invitee</button>
-        </div>
+        <p className="empty">No messages yet. Launch the event to send invite messages.</p>
+      </section>
+    )
+  }
 
-        {showAddInvitee && (
-          <AddInviteeModal
-            eventId={id}
-            alreadyInvited={invitees.map((i) => i.contact_id)}
-            onAdded={handleInviteeAdded}
-            onClose={() => setShowAddInvitee(false)}
-          />
-        )}
-
-        {invitees.length === 0
-          ? <p className="empty">No invitees yet.</p>
-          : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>RSVP</th>
-                  <th>+Guests</th>
-                  <th>Opened</th>
-                  <th>Invite Link</th>
+  return (
+    <section className="card">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>Recipient</th>
+            <th>Phone</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {texts.map((t) => (
+            <>
+              <tr key={t.id}>
+                <td className="text-muted" style={{ whiteSpace: 'nowrap' }}>{formatDateShort(t.created_at)}</td>
+                <td>{t.first_name} {t.last_name}</td>
+                <td className="mono">{t.phone_number}</td>
+                <td><TextStatusBadge status={t.status} /></td>
+                <td>
+                  <button
+                    className="expand-btn"
+                    onClick={() => toggle(t.id)}
+                    title={expanded.has(t.id) ? 'Collapse' : 'Expand'}
+                  >
+                    {expanded.has(t.id) ? '▲' : '▼'}
+                  </button>
+                </td>
+              </tr>
+              {expanded.has(t.id) && (
+                <tr key={`${t.id}-body`} className="message-body-row">
+                  <td colSpan={5}>
+                    <pre className="message-body">{t.content}</pre>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {invitees.map((inv) => (
-                  <tr key={inv.id}>
-                    <td>{inv.first_name} {inv.last_name}</td>
-                    <td className="mono">{inv.phone_number}</td>
-                    <td><RSVPBadge status={inv.rsvp_status} /></td>
-                    <td>{inv.additional_guests > 0 ? `+${inv.additional_guests}` : '—'}</td>
-                    <td>{inv.opened_at
-                      ? <span className="opened-at">{formatDateShort(inv.opened_at)}</span>
-                      : <span className="not-opened">Not yet</span>}
-                    </td>
-                    <td><InviteLink url={inv.invite_url} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-      </section>
+              )}
+            </>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
 
-      {/* Send Message Block */}
-      <section className="card">
-        <h2 className="card-title">Send a Message</h2>
-        <p className="hint">Message will be sent to all invitees who haven't declined.</p>
-        <form onSubmit={handleSendMessage} className="message-form">
-          <textarea
-            value={messageContent}
-            onChange={(e) => setMessageContent(e.target.value)}
-            placeholder="Type your message…"
-            rows={4}
-          />
-          <button type="submit" className="btn-primary" disabled={sending || !messageContent.trim()}>
-            {sending ? 'Sending…' : 'Send'}
+function TextStatusBadge({ status }) {
+  const cls = {
+    'pending': 'badge-none',
+    'sent':    'badge-accepted',
+    'failed':  'badge-declined',
+  }[status] || 'badge-none'
+  return <span className={`badge ${cls}`}>{status}</span>
+}
+
+function LaunchModal({ inviteeCount, launching, onConfirm, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Launch Event</h2>
+        <p>
+          This will send invite messages to{' '}
+          <strong>{inviteeCount} {inviteeCount === 1 ? 'invitee' : 'invitees'}</strong>.
+          The event status will change to <strong>Launched</strong> and cannot be undone.
+        </p>
+        {inviteeCount === 0 && (
+          <p className="error-banner">Add at least one invitee before launching.</p>
+        )}
+        <div className="form-actions">
+          <button className="btn-ghost" onClick={onClose} disabled={launching}>Cancel</button>
+          <button
+            className="btn-launch"
+            onClick={onConfirm}
+            disabled={launching || inviteeCount === 0}
+          >
+            {launching ? 'Launching…' : 'Send Invites'}
           </button>
-        </form>
-      </section>
+        </div>
+      </div>
     </div>
   )
 }
@@ -179,7 +362,7 @@ export default function EventDetails() {
 function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
   const [contacts, setContacts] = useState([])
   const [search, setSearch] = useState('')
-  const [mode, setMode] = useState('pick') // 'pick' | 'new'
+  const [mode, setMode] = useState('pick')
   const [newForm, setNewForm] = useState({ first_name: '', last_name: '', phone_number: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)

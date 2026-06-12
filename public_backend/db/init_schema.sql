@@ -14,6 +14,7 @@ CREATE TABLE public.events (
 	"description" varchar NOT NULL,
 	"location" varchar NOT NULL,
 	"plus_ones_allowed" bool NOT NULL,
+	"status" varchar NOT NULL DEFAULT 'draft',
 	CONSTRAINT events_pk PRIMARY KEY (id)
 );
 

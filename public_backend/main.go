@@ -56,6 +56,8 @@ func main() {
 		admin.PUT("/events/:id", env.adminUpdateEvent)
 		admin.POST("/events/:id/invites", env.adminAddInvitee)
 		admin.POST("/events/:id/messages", env.adminSendMessage)
+		admin.GET("/events/:id/texts", env.adminGetTexts)
+		admin.POST("/events/:id/launch", env.adminLaunchEvent)
 	}
 
 	router.Run(":8080")

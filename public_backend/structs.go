@@ -17,6 +17,7 @@ type Event struct {
 	Description       string    `db:"description"      json:"description"`
 	Location          string    `db:"location"         json:"location"`
 	Plus_Ones_Allowed bool      `db:"plus_ones_allowed" json:"plus_ones_allowed"`
+	Status            string    `db:"status"           json:"status"`
 }
 
 type Contact struct {
@@ -43,11 +44,12 @@ type EventSummary struct {
 	ID           int       `db:"id"            json:"id"`
 	Name         string    `db:"name"          json:"name"`
 	Date         time.Time `db:"date"          json:"date"`
-	TotalInvites int    `db:"total_invites" json:"total_invites"`
-	Accepted     int    `db:"accepted"      json:"accepted"`
-	Tentative    int    `db:"tentative"     json:"tentative"`
-	Declined     int    `db:"declined"      json:"declined"`
-	NoResponse   int    `db:"no_response"   json:"no_response"`
+	Status       string    `db:"status"        json:"status"`
+	TotalInvites int       `db:"total_invites" json:"total_invites"`
+	Accepted     int       `db:"accepted"      json:"accepted"`
+	Tentative    int       `db:"tentative"     json:"tentative"`
+	Declined     int       `db:"declined"      json:"declined"`
+	NoResponse   int       `db:"no_response"   json:"no_response"`
 }
 
 type EventDetail struct {
@@ -119,6 +121,16 @@ type Message struct {
 	ID      int    `db:"id"       json:"id"`
 	Content string `db:"content"  json:"content"`
 	EventID int    `db:"event_id" json:"event_id"`
+}
+
+type TextWithContact struct {
+	ID          int       `db:"id"           json:"id"`
+	Status      string    `db:"status"       json:"status"`
+	CreatedAt   time.Time `db:"created_at"   json:"created_at"`
+	Content     string    `db:"content"      json:"content"`
+	FirstName   string    `db:"first_name"   json:"first_name"`
+	LastName    string    `db:"last_name"    json:"last_name"`
+	PhoneNumber string    `db:"phone_number" json:"phone_number"`
 }
 
 type IdRequest struct {
