@@ -1,16 +1,51 @@
-# React + Vite
+# invitee_ui
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React frontend for the party-time invite page. Invitees visit `/invite/:id` to view event details and submit their RSVP.
 
-Currently, two official plugins are available:
+## Running the dev server
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+Runs on port 5174. Requires the Go backend on port 8080.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Testing
 
-## Expanding the ESLint configuration
+Tests use [Vitest](https://vitest.dev) + [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/) + [MSW](https://mswjs.io) for network mocking. No backend is needed — all API calls are intercepted in-process.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Run in watch mode (during development)
+
+```bash
+npm test
+```
+
+### Run once (CI / pre-commit)
+
+```bash
+npm test -- --run
+```
+
+### Run with coverage report
+
+```bash
+npm run test:coverage
+```
+
+Coverage output lands in `coverage/`.
+
+## Test structure
+
+```
+src/
+  test/
+    setup.js              # jest-dom matchers + MSW server lifecycle
+    msw/
+      handlers.js         # default GET /invite/:id and PUT /invite/:id handlers + shared fixtures
+      server.js           # MSW Node server
+  pages/
+    InvitePage.test.jsx   # all InvitePage tests
+```
+
+Per-test handler overrides use `server.use(...)` inside the test body — MSW resets to the defaults after each test automatically.
