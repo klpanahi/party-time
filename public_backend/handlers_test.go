@@ -422,6 +422,33 @@ func TestSendMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("text content includes message body and per-invitee RSVP link", func(t *testing.T) {
+		contactID := seedContact(t, "Rosa", "Blue", "5552220004")
+		eventID := seedEvent(t, "Link Check Event", futureDate(), "launched")
+		inviteID := seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/messages", eventID),
+			map[string]any{"content": "Come celebrate!"})
+		assertStatus(t, w, 201)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 1 {
+			t.Fatalf("want 1 text, got %d", len(texts))
+		}
+		msg := texts[0].Content
+		for _, want := range []string{
+			"Come celebrate!",
+			"Manage your RSVP here:",
+			"http://test.local/invite/" + inviteID,
+		} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("message missing %q\nfull message:\n%s", want, msg)
+			}
+		}
+	})
+
 	t.Run("missing content returns 400", func(t *testing.T) {
 		eventID := seedEvent(t, "Bad Msg Event", futureDate(), "launched")
 		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/messages", eventID),

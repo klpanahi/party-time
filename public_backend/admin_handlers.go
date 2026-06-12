@@ -249,13 +249,14 @@ func (env *Env) adminSendMessage(c *gin.Context) {
 		return
 	}
 
-	// Create pending texts for all non-declined invitees.
+	// Pre-build per-invitee content so each text includes the recipient's personal RSVP link.
 	insertTexts := `
-		INSERT INTO texts (contact_id, message_id, event_id, status)
-		SELECT i.contact_id, $1, $2, 'pending'
+		INSERT INTO texts (contact_id, message_id, event_id, status, content)
+		SELECT i.contact_id, $1, $2, 'pending',
+		       $3 || E'\n\nManage your RSVP here: ' || $4 || '/invite/' || i.id
 		FROM invites i
 		WHERE i.event_id = $2 AND i.attending != 'Declined'`
-	result, err := env.db.Exec(insertTexts, messageID, eventID)
+	result, err := env.db.Exec(insertTexts, messageID, eventID, req.Content, env.inviteeBase)
 	if err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

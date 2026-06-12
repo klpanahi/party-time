@@ -208,6 +208,108 @@ describe('EventDetails', () => {
     expect(screen.getByText('save failed')).toBeInTheDocument()
   })
 
+  it('shows error banner when launching fails', async () => {
+    server.use(
+      http.post(`${BASE}/events/:id/launch`, () =>
+        HttpResponse.json({ error: 'launch failed' }, { status: 500 })
+      )
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /launch event/i }))
+    await userEvent.click(screen.getByRole('button', { name: /send invites/i }))
+    await screen.findByText('launch failed')
+  })
+
+  it('changing the date field triggers auto-save', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    vi.useFakeTimers()
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-15T18:00' } })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
+  it('changing the description field triggers auto-save', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('A great outdoor party.')
+
+    vi.useFakeTimers()
+    fireEvent.change(screen.getByDisplayValue('A great outdoor party.'), {
+      target: { value: 'Updated description.' },
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
+  it('toggling the plus-ones checkbox triggers auto-save', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('checkbox', { name: /plus ones/i }))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
+  it('shows error banner when send message fails', async () => {
+    server.use(
+      http.post(`${BASE}/events/:id/messages`, () =>
+        HttpResponse.json({ error: 'send failed' }, { status: 500 })
+      )
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    await userEvent.type(screen.getByPlaceholderText(/type your message/i), 'Hello!')
+    await userEvent.click(screen.getByRole('button', { name: /^send$/i }))
+    await screen.findByText('send failed')
+  })
+
+  it('refreshes texts after sending a message when already on the Messages tab', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith')
+
+    // Switch back to invitees tab to access the message form, then back to messages
+    await userEvent.click(screen.getByRole('button', { name: /invitees/i }))
+    await userEvent.type(screen.getByPlaceholderText(/type your message/i), 'Update!')
+
+    // Switch to messages tab so it's active when send fires
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith')
+
+    // Tab back to invitees to get the form, send while messages tab would re-load
+    await userEvent.click(screen.getByRole('button', { name: /invitees/i }))
+    await userEvent.type(screen.getByPlaceholderText(/type your message/i), 'Update!')
+    await userEvent.click(screen.getByRole('button', { name: /^send$/i }))
+    expect(screen.getByPlaceholderText(/type your message/i).value).toBe('')
+  })
+
+  it('shows "No messages yet" when texts list is empty', async () => {
+    server.use(
+      http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json([]))
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText(/no messages yet/i)
+  })
+
   it('shows error banner when Messages tab fails to load texts', async () => {
     server.use(
       http.get(`${BASE}/events/:id/texts`, () =>
@@ -231,6 +333,64 @@ describe('EventDetails', () => {
     await userEvent.click(screen.getByRole('button', { name: /send invites/i }))
 
     await screen.findByText('Launched')
+  })
+})
+
+describe('Notify invitees of changes', () => {
+  const launchedEvent = {
+    ...defaultEvent,
+    event: { ...defaultEvent.event, status: 'launched' },
+  }
+
+  it('button is NOT shown for a draft event', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(
+      screen.queryByRole('button', { name: /notify invitees of changes/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('button IS shown for a launched event', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(
+      screen.getByRole('button', { name: /notify invitees of changes/i })
+    ).toBeInTheDocument()
+  })
+
+  it('pre-fills the message textarea with the change notification text', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    await userEvent.click(screen.getByRole('button', { name: /notify invitees of changes/i }))
+
+    expect(screen.getByPlaceholderText(/type your message/i).value).toBe(
+      'Heads up — some event details have been updated. Check your invite link for the latest info.'
+    )
+  })
+
+  it('switches from Messages tab back to Invitees tab and pre-fills', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith') // texts loaded — we're on Messages tab
+
+    await userEvent.click(screen.getByRole('button', { name: /notify invitees of changes/i }))
+
+    // Textarea is back in the DOM (invitees tab active)
+    expect(screen.getByPlaceholderText(/type your message/i).value).toBe(
+      'Heads up — some event details have been updated. Check your invite link for the latest info.'
+    )
+  })
+
+  it('hint text mentions the automatic RSVP link', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(screen.getByText(/personal rsvp link/i)).toBeInTheDocument()
   })
 })
 
@@ -357,5 +517,30 @@ describe('AddInviteeModal', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /bob jones/i }))
     await screen.findByText('invite failed')
+  })
+
+  it('shows error banner when New Contact form submit fails', async () => {
+    server.use(
+      http.post(`${BASE}/events/:id/invites`, () =>
+        HttpResponse.json({ error: 'new contact failed' }, { status: 500 })
+      )
+    )
+    render(
+      <MemoryRouter initialEntries={[`/event/${EVENT_ID}`]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventDetails />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    await screen.findByText('Alice Smith')
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await screen.findByRole('button', { name: /bob jones/i })
+
+    await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
+    await userEvent.type(screen.getByLabelText(/last name/i), 'White')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.click(screen.getByRole('button', { name: /add & invite/i }))
+    await screen.findByText('new contact failed')
   })
 })
