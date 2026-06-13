@@ -19,7 +19,8 @@ party-time/
 ├── public_backend/     Go/Gin REST API — serves both UIs on :8080
 ├── admin_ui/           React admin portal — :5173 (ADMIN_ENABLED=true required)
 ├── invitee_ui/         React invitee portal — :5174
-├── schema.sql          Canonical DB schema + sample data (single source of truth)
+├── schema.sql          Canonical DB schema (structural single source of truth)
+├── test_data.sql       Local dev seed data (loaded fresh by run_local.sh)
 ├── docker-compose.yml  Local PostgreSQL container
 └── run_local.sh              Starts all three services at once
 ```
@@ -47,13 +48,9 @@ npm run dev   # http://localhost:5173
 npm run dev   # http://localhost:5174
 ```
 
-`run_local.sh` waits for postgres to be ready before starting the backend. The backend uses `air` for live reload.
+`run_local.sh` waits for postgres to be ready, then **wipes the DB and reloads `schema.sql` + `test_data.sql` on every startup** (so each run starts from the same known seed). The backend uses `air` for live reload.
 
-To reset the database, stop the container, remove the `pgdata` Docker volume, and restart:
-
-```bash
-docker compose down -v && docker compose up -d
-```
+All seeded texts are terminal (`sent`/`failed`) with fake numbers — there are no `pending`/`sending` rows, so the text worker stays idle on startup and never sends. To test live Twilio delivery, set `TWILIO_*` and queue a message from the admin UI yourself.
 
 ---
 
@@ -82,8 +79,15 @@ Go 1.25 / Gin v1.12. Single binary on `:8080`. Admin routes are gated by `ADMIN_
 | `DBPASS` | `mypassword` | PostgreSQL password |
 | `DBHOST` | `127.0.0.1` | Database host |
 | `DBPORT` | `5432` | PostgreSQL port |
+| `TWILIO_ACCOUNT_SID` | _(unset)_ | Twilio Account SID — enables the text worker |
+| `TWILIO_AUTH_TOKEN` | _(unset)_ | Twilio Auth Token |
+| `TWILIO_FROM_NUMBER` | _(unset)_ | Twilio sender (E.164 number or Messaging Service SID) |
+| `TEXT_WORKER_INTERVAL` | `3s` | How often the worker polls for pending texts (`time.ParseDuration`) |
+| `TEXT_WORKER_RATE_MS` | `1100` | Delay between sends, ms — keeps under the trial ~1 MPS long-code limit |
 
 Database name is hardcoded as `party_time`. Test DB is `party_time_test`.
+
+All three `TWILIO_*` vars must be set for SMS to send; if any is missing the text worker is disabled and texts stay `pending` (handy for local dev and tests).
 
 ### Public Routes
 
@@ -111,12 +115,35 @@ Database name is hardcoded as `party_time`. Test DB is `party_time_test`.
 | PUT | `/admin/events/:id` | Update event fields |
 | POST | `/admin/events/:id/invites` | Add invitee — existing contact or new |
 | POST | `/admin/events/:id/messages` | Queue message as pending texts to non-declined invitees |
-| GET | `/admin/events/:id/texts` | List queued/sent texts for an event |
+| GET | `/admin/events/:id/texts` | List queued/sent texts for an event (incl. `status`, `error`, `provider_sid`, `sent_at`) |
 | POST | `/admin/events/:id/launch` | Transition event `draft → launched`, queue invite texts |
+| POST | `/admin/texts/:id/resend` | Requeue a `failed` text (`failed → pending`); 409 if not failed |
 
 `POST /admin/events/:id/invites` accepts either `{ "contact_id": N }` or `{ "first_name", "last_name", "phone_number" }` (upserts contact by phone). If the event is already launched, an invite text is queued immediately for the new invitee.
 
 `POST /admin/events/:id/launch` requires at least one invitee; inserts a pending text per invitee and sets `events.status = 'launched'`. Returns 409 if already launched.
+
+### Text Delivery (SMS via Twilio)
+
+The `texts` table is a durable outbox/queue. Admin handlers (`launch`, `messages`, late
+`invites`) insert rows as `status = 'pending'` and return immediately — they never call
+Twilio inline. A background worker (`worker.go`, started from `main.go` when `TWILIO_*` is
+configured) drains the queue:
+
+- **Claim:** `FOR UPDATE SKIP LOCKED` moves a batch (≤10) from `pending → sending`, so
+  restarts/multiple workers never double-claim a row.
+- **Send:** one Twilio Create-Message call per recipient via the `SMSSender` interface
+  (`sms.go`). Success → `sent` (records `provider_sid`, `sent_at`). Error → `failed`
+  (records `error`). **Fail-fast:** one attempt, no auto-retry; resend manually.
+- **Rate limit:** `TEXT_WORKER_RATE_MS` between sends to respect the ~1 MPS trial limit.
+- **Crash recovery:** on startup, any leftover `sending` rows are marked `failed`
+  (`error = 'interrupted (process restart)'`) — at-most-once, since we can't tell whether
+  Twilio accepted them.
+
+**Status lifecycle:** `pending → sending → sent` (or `→ failed`, then `→ pending` again via
+resend). Confirmation is at Twilio-acceptance level (queued/sent); carrier delivery receipts
+are not tracked. **Free-trial caveats:** ≤50 msgs/day and recipients must be verified in the
+Twilio console.
 
 ### Date Handling
 

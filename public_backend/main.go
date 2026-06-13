@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -13,6 +17,7 @@ import (
 type Env struct {
 	db          *sqlx.DB
 	inviteeBase string
+	sender      SMSSender
 }
 
 func main() {
@@ -27,6 +32,17 @@ func main() {
 	env := &Env{
 		db:          db,
 		inviteeBase: getenv("INVITEE_BASE_URL", "http://localhost:5174"),
+	}
+
+	// Start the background text worker only when Twilio credentials are present.
+	// Without them, texts simply stay 'pending' (useful for local dev and tests).
+	if sender, ok := newTwilioSender(); ok {
+		env.sender = sender
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		go env.runTextWorker(ctx)
+	} else {
+		log.Println("TWILIO_* env vars not set — text worker disabled, texts will stay pending")
 	}
 
 	router.Use(cors.New(cors.Config{
@@ -58,6 +74,7 @@ func main() {
 		admin.POST("/events/:id/messages", env.adminSendMessage)
 		admin.GET("/events/:id/texts", env.adminGetTexts)
 		admin.POST("/events/:id/launch", env.adminLaunchEvent)
+		admin.POST("/texts/:id/resend", env.adminResendText)
 	}
 
 	router.Run(":8080")

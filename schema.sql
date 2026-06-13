@@ -42,15 +42,14 @@ CREATE TABLE public.texts (
     event_id integer REFERENCES events(id),
     status varchar NOT NULL DEFAULT 'pending',
     content TEXT NULL,
+    provider_sid varchar NULL,
+    error varchar NULL,
+    sent_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT texts_pk PRIMARY KEY (id)
 );
 
--- Sample data
-INSERT INTO contacts (first_name, last_name, phone_number)
-VALUES ('Mark', 'Jones', '1234567890');
+CREATE INDEX texts_status_idx ON public.texts (status, created_at);
 
-INSERT INTO events (name, date, description, location, plus_ones_allowed)
-VALUES ('Test Event', '2027-03-07 18:00:00-06:00', 'A Test Event made for party time', 'My House!', true);
-
-INSERT INTO invites (event_id, contact_id) VALUES (1, 1);
+-- Seed data for local development lives in test_data.sql (loaded by run_local.sh).
+-- This file stays purely structural so it can also build the test database.

@@ -24,3 +24,4 @@ export const addInvitee = (eventId, data) => request('POST', `/events/${eventId}
 export const sendMessage = (eventId, content) => request('POST', `/events/${eventId}/messages`, { content })
 export const launchEvent = (eventId) => request('POST', `/events/${eventId}/launch`)
 export const getTexts = (eventId) => request('GET', `/events/${eventId}/texts`)
+export const resendText = (textId) => request('POST', `/texts/${textId}/resend`)

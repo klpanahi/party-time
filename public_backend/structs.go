@@ -124,13 +124,16 @@ type Message struct {
 }
 
 type TextWithContact struct {
-	ID          int       `db:"id"           json:"id"`
-	Status      string    `db:"status"       json:"status"`
-	CreatedAt   time.Time `db:"created_at"   json:"created_at"`
-	Content     string    `db:"content"      json:"content"`
-	FirstName   string    `db:"first_name"   json:"first_name"`
-	LastName    string    `db:"last_name"    json:"last_name"`
-	PhoneNumber string    `db:"phone_number" json:"phone_number"`
+	ID          int        `db:"id"           json:"id"`
+	Status      string     `db:"status"       json:"status"`
+	CreatedAt   time.Time  `db:"created_at"   json:"created_at"`
+	Content     string     `db:"content"      json:"content"`
+	Error       *string    `db:"error"        json:"error"`
+	ProviderSid *string    `db:"provider_sid" json:"provider_sid"`
+	SentAt      *time.Time `db:"sent_at"      json:"sent_at"`
+	FirstName   string     `db:"first_name"   json:"first_name"`
+	LastName    string     `db:"last_name"    json:"last_name"`
+	PhoneNumber string     `db:"phone_number" json:"phone_number"`
 }
 
 type IdRequest struct {

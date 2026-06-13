@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts } from '../api'
+import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText } from '../api'
 import { toDatetimeLocal, formatDateShort } from '../dateUtils'
 
 export default function EventDetails() {
@@ -268,14 +268,20 @@ export default function EventDetails() {
       )}
 
       {activeTab === 'messages' && (
-        <MessagesTab texts={texts} error={textsError} />
+        <MessagesTab
+          texts={texts}
+          error={textsError}
+          onReload={() => getTexts(id).then(setTexts).catch((e) => setTextsError(e.message))}
+        />
       )}
     </div>
   )
 }
 
-function MessagesTab({ texts, error }) {
+function MessagesTab({ texts, error, onReload }) {
   const [expanded, setExpanded] = useState(new Set())
+  const [resendingId, setResendingId] = useState(null)
+  const [resendError, setResendError] = useState(null)
 
   function toggle(id) {
     setExpanded((prev) => {
@@ -283,6 +289,19 @@ function MessagesTab({ texts, error }) {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+  }
+
+  async function handleResend(id) {
+    setResendingId(id)
+    setResendError(null)
+    try {
+      await resendText(id)
+      await onReload()
+    } catch (e) {
+      setResendError(e.message)
+    } finally {
+      setResendingId(null)
+    }
   }
 
   if (error) return <div className="error-banner">{error}</div>
@@ -298,6 +317,7 @@ function MessagesTab({ texts, error }) {
 
   return (
     <section className="card">
+      {resendError && <div className="error-banner">{resendError}</div>}
       <table className="table">
         <thead>
           <tr>
@@ -316,7 +336,17 @@ function MessagesTab({ texts, error }) {
                 <td>{t.first_name} {t.last_name}</td>
                 <td className="mono">{t.phone_number}</td>
                 <td><TextStatusBadge status={t.status} /></td>
-                <td>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  {t.status === 'failed' && (
+                    <button
+                      className="btn-ghost btn-sm"
+                      style={{ marginRight: 8 }}
+                      onClick={() => handleResend(t.id)}
+                      disabled={resendingId === t.id}
+                    >
+                      {resendingId === t.id ? 'Resending…' : 'Resend'}
+                    </button>
+                  )}
                   <button
                     className="expand-btn"
                     onClick={() => toggle(t.id)}
@@ -329,6 +359,9 @@ function MessagesTab({ texts, error }) {
               {expanded.has(t.id) && (
                 <tr key={`${t.id}-body`} className="message-body-row">
                   <td colSpan={5}>
+                    {t.status === 'failed' && t.error && (
+                      <p style={{ margin: '0 0 0.5rem', color: 'var(--danger)' }}>Error: {t.error}</p>
+                    )}
                     <pre className="message-body">{t.content}</pre>
                   </td>
                 </tr>

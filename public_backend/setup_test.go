@@ -95,6 +95,7 @@ func newRouter() *gin.Engine {
 	admin.POST("/events/:id/messages", testEnv.adminSendMessage)
 	admin.GET("/events/:id/texts", testEnv.adminGetTexts)
 	admin.POST("/events/:id/launch", testEnv.adminLaunchEvent)
+	admin.POST("/texts/:id/resend", testEnv.adminResendText)
 	return r
 }
 

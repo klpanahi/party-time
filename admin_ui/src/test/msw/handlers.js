@@ -88,6 +88,8 @@ export const handlers = [
 
   http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(defaultTexts)),
 
+  http.post(`${BASE}/texts/:id/resend`, () => HttpResponse.json({ ok: true })),
+
   http.post(`${BASE}/events/:id/messages`, () => HttpResponse.json({ ok: true })),
 
   http.post(`${BASE}/events/:id/invites`, () => HttpResponse.json({ ok: true })),

@@ -335,6 +335,7 @@ func (env *Env) adminGetTexts(c *gin.Context) {
 		SELECT
 			t.id, t.status, t.created_at,
 			COALESCE(t.content, m.content, '') AS content,
+			t.error, t.provider_sid, t.sent_at,
 			c.first_name, c.last_name, c.phone_number
 		FROM texts t
 		JOIN contacts c ON c.id = t.contact_id
@@ -347,6 +348,28 @@ func (env *Env) adminGetTexts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, texts)
+}
+
+// adminResendText requeues a failed text so the background worker retries it.
+func (env *Env) adminResendText(c *gin.Context) {
+	id := c.Param("id")
+
+	result, err := env.db.Exec(
+		`UPDATE texts SET status = 'pending', error = NULL WHERE id = $1 AND status = 'failed'`,
+		id,
+	)
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if n, _ := result.RowsAffected(); n == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "text not found or not in a failed state"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func buildInviteMessage(firstName, eventName, formattedDate, location, description, inviteURL string) string {

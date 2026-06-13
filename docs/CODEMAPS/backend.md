@@ -27,14 +27,31 @@ GET  /admin/events/:id         → adminGetEvent         → event + invitees jo
 PUT  /admin/events/:id         → adminUpdateEvent      → UPDATE events
 POST /admin/events/:id/invites → adminAddInvitee       → upsert contact + INSERT invite; if launched, queue invite text
 POST /admin/events/:id/messages → adminSendMessage     → INSERT message + INSERT texts for non-declined invitees
-GET  /admin/events/:id/texts   → adminGetTexts         → texts JOIN contacts LEFT JOIN messages
+GET  /admin/events/:id/texts   → adminGetTexts         → texts JOIN contacts LEFT JOIN messages (status, error, provider_sid, sent_at)
 POST /admin/events/:id/launch  → adminLaunchEvent      → INSERT invite texts for all, UPDATE status='launched'
+POST /admin/texts/:id/resend   → adminResendText       → UPDATE texts failed→pending (409 if not failed)
 ```
+
+## Text Worker (SMS via Twilio)
+The `texts` table is a durable outbox. Handlers insert `status='pending'` and return; a
+background goroutine drains the queue and sends via Twilio.
+```
+worker.go  runTextWorker(ctx)        poll loop (TEXT_WORKER_INTERVAL); startup sweep marks
+                                      orphaned 'sending' rows 'failed'
+           processPendingTexts()      claim batch via FOR UPDATE SKIP LOCKED (pending→sending),
+                                      send each, then sent (provider_sid, sent_at) or failed (error)
+sms.go     SMSSender interface        Send(to, body) → sid; twilioSender wraps twilio-go;
+                                      newTwilioSender() returns ok=false when creds absent
+```
+Status lifecycle: `pending → sending → sent | failed`. Fail-fast (one attempt); worker only
+starts when `TWILIO_*` is configured, else texts stay pending.
 
 ## Key Files
 ```
-public_backend/main.go            router setup, public handlers, Env struct (120 lines)
-public_backend/admin_handlers.go  admin route handlers + buildInviteMessage (357 lines)
+public_backend/main.go            router setup, public handlers, Env struct, text-worker start
+public_backend/admin_handlers.go  admin route handlers + buildInviteMessage + adminResendText
+public_backend/worker.go          background text worker: poll, claim, send, status transitions
+public_backend/sms.go             SMSSender interface + twilioSender + newTwilioSender
 public_backend/structs.go         all request/response/DB structs (139 lines)
 public_backend/helpers.go         getenv, loaddbconfig, parseCentralTime
 public_backend/handlers_test.go   integration tests: TestContacts, TestEvents (incl. update), TestAddInvitee,
@@ -47,4 +64,6 @@ public_backend/setup_test.go      test DB setup — loads ../schema.sql via os.R
 ## Environment Variables
 - `ADMIN_ENABLED` — "true" to expose /admin routes (default: "false")
 - `INVITEE_BASE_URL` — base URL for invite links (default: "http://localhost:5174")
+- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` — enable the text worker (all required)
+- `TEXT_WORKER_INTERVAL` (default 3s) / `TEXT_WORKER_RATE_MS` (default 1100) — poll cadence + per-send delay
 - DB config loaded from env via `loaddbconfig()` in helpers.go

@@ -130,6 +130,41 @@ describe('EventDetails', () => {
     expect(screen.queryByText('You are invited to Summer Party!')).not.toBeInTheDocument()
   })
 
+  it('shows a Resend button for failed texts and refreshes the row on success', async () => {
+    const failed = [{ ...defaultTexts[0], status: 'failed', error: 'invalid number' }]
+    const sent = [{ ...defaultTexts[0], status: 'sent' }]
+    server.use(
+      http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(failed), { once: true }),
+      http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(sent)),
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith')
+    expect(screen.getByText('failed')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /resend/i }))
+    await screen.findByText('sent')
+    expect(screen.queryByRole('button', { name: /resend/i })).not.toBeInTheDocument()
+  })
+
+  it('shows an error banner when a resend fails', async () => {
+    const failed = [{ ...defaultTexts[0], status: 'failed', error: 'invalid number' }]
+    server.use(
+      http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(failed)),
+      http.post(`${BASE}/texts/:id/resend`, () =>
+        HttpResponse.json({ error: 'resend failed' }, { status: 500 }),
+      ),
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith')
+
+    await userEvent.click(screen.getByRole('button', { name: /resend/i }))
+    await screen.findByText(/resend failed/i)
+  })
+
   it('Send button is disabled when the message textarea is empty', async () => {
     renderDetails()
     await screen.findByDisplayValue('Summer Party')
