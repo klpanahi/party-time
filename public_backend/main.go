@@ -65,7 +65,7 @@ func main() {
 
 func (env *Env) getInvites(c *gin.Context) {
 	invites := []Invite{}
-	sql := "SELECT * FROM invites"
+	sql := "SELECT id, attending, additional_guests, event_id, contact_id FROM invites"
 	err := env.db.Select(&invites, sql)
 	if err != nil {
 		fmt.Println(err)

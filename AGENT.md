@@ -21,14 +21,14 @@ party-time/
 ├── invitee_ui/         React invitee portal — :5174
 ├── schema.sql          Canonical DB schema + sample data (single source of truth)
 ├── docker-compose.yml  Local PostgreSQL container
-└── dev.sh              Starts all three services at once
+└── run_local.sh              Starts all three services at once
 ```
 
 ## Running Locally
 
 ```bash
 # Start everything (postgres + backend with air + both UIs):
-./dev.sh
+./run_local.sh
 ```
 
 Or individually:
@@ -47,7 +47,7 @@ npm run dev   # http://localhost:5173
 npm run dev   # http://localhost:5174
 ```
 
-`dev.sh` waits for postgres to be ready before starting the backend. The backend uses `air` for live reload.
+`run_local.sh` waits for postgres to be ready before starting the backend. The backend uses `air` for live reload.
 
 To reset the database, stop the container, remove the `pgdata` Docker volume, and restart:
 

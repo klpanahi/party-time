@@ -598,6 +598,103 @@ func TestGetInvite(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Public: Get All Invites
+// ---------------------------------------------------------------------------
+
+func TestGetInvites(t *testing.T) {
+	cleanDB(t)
+	r := newRouter()
+
+	t.Run("returns empty list when no invites exist", func(t *testing.T) {
+		w := do(t, r, "GET", "/invites", nil)
+		assertStatus(t, w, 200)
+		var list []Invite
+		mustDecode(t, w, &list)
+		if len(list) != 0 {
+			t.Errorf("want 0 invites, got %d", len(list))
+		}
+	})
+
+	t.Run("returns all invites after seeding", func(t *testing.T) {
+		contactID := seedContact(t, "Tom", "Baker", "5559990001")
+		eventID := seedEvent(t, "Tom's Event", futureDate(), "launched")
+		seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "GET", "/invites", nil)
+		assertStatus(t, w, 200)
+		var list []Invite
+		mustDecode(t, w, &list)
+		if len(list) != 1 {
+			t.Errorf("want 1 invite, got %d", len(list))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Public: Get Event By ID
+// ---------------------------------------------------------------------------
+
+func TestGetEventByID(t *testing.T) {
+	cleanDB(t)
+	r := newRouter()
+
+	t.Run("returns event details", func(t *testing.T) {
+		eventID := seedEvent(t, "Public Bash", futureDate(), "launched")
+
+		w := do(t, r, "GET", fmt.Sprintf("/event/%d", eventID), nil)
+		assertStatus(t, w, 200)
+		var event Event
+		mustDecode(t, w, &event)
+		if event.Event_Name != "Public Bash" {
+			t.Errorf("name = %q, want Public Bash", event.Event_Name)
+		}
+		if event.Status != "launched" {
+			t.Errorf("status = %q, want launched", event.Status)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Admin handler edge cases
+// ---------------------------------------------------------------------------
+
+func TestAdminEdgeCases(t *testing.T) {
+	cleanDB(t)
+	r := newRouter()
+
+	t.Run("update contact missing required fields returns 400", func(t *testing.T) {
+		contactID := seedContact(t, "Edge", "Case", "5559990002")
+		w := do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", contactID),
+			map[string]any{"last_name": "OnlyLastName"})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("update event with invalid date returns 400", func(t *testing.T) {
+		eventID := seedEvent(t, "Date Edge", futureDate(), "draft")
+		w := do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
+			"name":        "Updated",
+			"date":        "not-a-date",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("get nonexistent admin event returns 404", func(t *testing.T) {
+		w := do(t, r, "GET", "/admin/events/99999", nil)
+		assertStatus(t, w, 404)
+	})
+
+	t.Run("update invite with no body returns 400", func(t *testing.T) {
+		contactID := seedContact(t, "Upd", "Test", "5559990003")
+		eventID := seedEvent(t, "Upd Event", futureDate(), "launched")
+		inviteID := seedInvite(t, eventID, contactID)
+		w := do(t, r, "PUT", "/invite/"+inviteID, nil)
+		assertStatus(t, w, 400)
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Public: Update Invite
 // ---------------------------------------------------------------------------
 
