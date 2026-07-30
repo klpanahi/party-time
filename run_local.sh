@@ -3,6 +3,17 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
+# Load local environment configuration (copy sample.local.env -> local.env).
+# Variables defined there are exported into the backend below.
+if [ -f "$ROOT/local.env" ]; then
+  echo "Loading environment from local.env..."
+  set -a
+  . "$ROOT/local.env"
+  set +a
+else
+  echo "No local.env found — using built-in defaults (cp sample.local.env local.env to customize)."
+fi
+
 cleanup() {
   echo ""
   echo "Shutting down..."
@@ -31,8 +42,8 @@ psql -q -f - < "$ROOT/schema.sql" >/dev/null
 psql -q -f - < "$ROOT/test_data.sql" >/dev/null
 echo "Database reset complete."
 
-# Backend
-(cd "$ROOT/public_backend" && ADMIN_ENABLED=true air .) &
+# Backend (ADMIN_ENABLED defaults to true here if local.env didn't set it)
+(cd "$ROOT/public_backend" && ADMIN_ENABLED="${ADMIN_ENABLED:-true}" air .) &
 
 # UIs
 (cd "$ROOT/admin_ui"   && npm run dev) &
