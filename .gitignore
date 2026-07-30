@@ -1,5 +1,20 @@
 .vscode/launch.json
 .DS_Store
+
+# Credentials — never commit. sample.local.env holds placeholders only.
+local.env
+.env
+.env.*
+
+# Build output — regenerate with ./build.sh
+dist/
+admin_ui/dist/
+invitee_ui/dist/
+node_modules/
+
+# Compiled binaries
 public_backend/web-service-gin
 public_backend/tmp/main
-public_backend/web-service-gin
+
+# Local tooling
+**/.claude/settings.local.json
