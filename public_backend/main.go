@@ -81,6 +81,7 @@ func main() {
 }
 
 func (env *Env) getInvites(c *gin.Context) {
+	// TODO make sure this only gets the invites for a give contact/user - I'm not sure this call is currently scoped appropriately
 	invites := []Invite{}
 	sql := "SELECT id, attending, additional_guests, event_id, contact_id FROM invites"
 	err := env.db.Select(&invites, sql)

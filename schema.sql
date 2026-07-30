@@ -1,4 +1,8 @@
-CREATE TABLE public.contacts (
+CREATE SCHEMA IF NOT EXISTS party_time;
+
+SET search_path TO party_time;
+
+CREATE TABLE IF NOT EXISTS party_time.contacts (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
     first_name varchar NULL,
     last_name varchar NULL,
@@ -7,7 +11,7 @@ CREATE TABLE public.contacts (
     CONSTRAINT contacts_unique UNIQUE (phone_number)
 );
 
-CREATE TABLE public.events (
+CREATE TABLE IF NOT EXISTS party_time.events (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
     name varchar NOT NULL,
     date TIMESTAMPTZ NOT NULL,
@@ -18,28 +22,28 @@ CREATE TABLE public.events (
     CONSTRAINT events_pk PRIMARY KEY (id)
 );
 
-CREATE TABLE public.invites (
+CREATE TABLE IF NOT EXISTS party_time.invites (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     attending varchar DEFAULT 'No Response' NULL,
     additional_guests int DEFAULT 0 NULL,
-    event_id integer REFERENCES events(id),
-    contact_id integer REFERENCES contacts(id),
+    event_id bigint REFERENCES events(id),
+    contact_id bigint REFERENCES contacts(id),
     opened_at TIMESTAMPTZ NULL,
     CONSTRAINT invites_pk PRIMARY KEY (id)
 );
 
-CREATE TABLE public.messages (
+CREATE TABLE IF NOT EXISTS party_time.messages (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
     content varchar NOT NULL,
-    event_id integer REFERENCES events(id),
+    event_id bigint REFERENCES events(id),
     CONSTRAINT messages_pk PRIMARY KEY (id)
 );
 
-CREATE TABLE public.texts (
+CREATE TABLE IF NOT EXISTS party_time.texts (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
-    contact_id integer REFERENCES contacts(id),
-    message_id integer REFERENCES messages(id),
-    event_id integer REFERENCES events(id),
+    contact_id bigint REFERENCES contacts(id),
+    message_id bigint REFERENCES messages(id),
+    event_id bigint REFERENCES events(id),
     status varchar NOT NULL DEFAULT 'pending',
     content TEXT NULL,
     provider_sid varchar NULL,
@@ -49,7 +53,7 @@ CREATE TABLE public.texts (
     CONSTRAINT texts_pk PRIMARY KEY (id)
 );
 
-CREATE INDEX texts_status_idx ON public.texts (status, created_at);
+CREATE INDEX IF NOT EXISTS texts_status_idx ON party_time.texts (status, created_at);
 
 -- Seed data for local development lives in test_data.sql (loaded by run_local.sh).
 -- This file stays purely structural so it can also build the test database.

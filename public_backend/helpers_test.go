@@ -38,6 +38,18 @@ func TestParseCentralTime(t *testing.T) {
 		}
 	})
 
+	t.Run("parses datetime-local string with seconds (browser fallback format)", func(t *testing.T) {
+		got, err := parseCentralTime("2099-07-04T18:00:30")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		loc, _ := time.LoadLocation("America/Chicago")
+		want := time.Date(2099, 7, 4, 18, 0, 30, 0, loc)
+		if !got.Equal(want) {
+			t.Errorf("parseCentralTime = %v, want %v", got, want)
+		}
+	})
+
 	t.Run("returns error for invalid format", func(t *testing.T) {
 		if _, err := parseCentralTime("not-a-date"); err == nil {
 			t.Error("expected error for invalid datetime format, got nil")
