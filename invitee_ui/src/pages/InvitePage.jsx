@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
-const BASE = 'http://localhost:8080'
+const BASE = ''
 
 async function fetchInvite(id) {
   const res = await fetch(`${BASE}/invite/${id}`)
