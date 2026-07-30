@@ -52,6 +52,13 @@ describe('EventSummary', () => {
     await screen.findByText('internal server error')
   })
 
+  it('renders the page heading and create button together in the header', async () => {
+    renderSummary()
+    await screen.findByText('Summer Party')
+    expect(screen.getByRole('heading', { name: /^events$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create event/i })).toBeInTheDocument()
+  })
+
   it('opens the create event modal when "+ Create Event" is clicked', async () => {
     renderSummary()
     await screen.findByText('Summer Party')
