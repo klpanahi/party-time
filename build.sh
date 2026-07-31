@@ -52,9 +52,26 @@ echo "[5/7] Building admin UI..."
 echo "[6/7] Building invitee UI..."
 (cd "$ROOT/invitee_ui" && npm run build)
 
-# ── 7. Build backend Docker image ─────────────────────────────────────────────
-echo "[7/7] Building backend Docker image (party-time-backend:latest)..."
-docker compose -f "$ROOT/docker-compose.prod.yml" build --pull public-backend
+# ── 7. Cross-build backend image for the VMs ─────────────────────────────────
+# The VMs are amd64 and this machine is likely arm64. Building here and shipping
+# the result replaces an in-guest compile that took minutes on a 2 vCPU / 2 GB /
+# no-swap VM competing with Postgres.
+echo "[7/7] Cross-building backend image for linux/amd64..."
+docker buildx build \
+  --platform linux/amd64 \
+  --pull \
+  --tag party-time-backend:latest \
+  --load \
+  "$ROOT/public_backend"
+
+# Guard against silently shipping an image the VMs cannot execute.
+image_arch="$(docker image inspect party-time-backend:latest --format '{{.Architecture}}')"
+if [ "$image_arch" != "amd64" ]; then
+  echo "      ERROR: built image is '$image_arch', expected 'amd64'." >&2
+  echo "      The VMs cannot run this. Refusing to continue." >&2
+  exit 1
+fi
+echo "      Built linux/amd64."
 
 # ── Bundle artifacts ──────────────────────────────────────────────────────────
 echo ""
@@ -66,16 +83,21 @@ cp -r "$ROOT/invitee_ui/dist"          "$DIST/invitee-ui"
 cp    "$ROOT/deploy/nginx-public.conf" "$DIST/"
 cp    "$ROOT/deploy/nginx-admin.conf"  "$DIST/"
 
+# The deploy playbook ships this tarball and docker-loads it on the VM, so the
+# VM never compiles anything. gzip because it crosses the network.
+echo "Exporting backend image..."
+docker save party-time-backend:latest | gzip > "$DIST/party-time-backend-amd64.tar.gz"
+
 echo ""
 echo "=== Build complete ==="
 echo ""
 echo "Artifacts in dist/:"
-echo "  admin-ui/          → scp to admin nginx VM   → /var/www/admin-ui/"
-echo "  invitee-ui/        → scp to public nginx VM  → /var/www/invitee-ui/"
-echo "  nginx-admin.conf   → scp to admin nginx VM   (replace BACKEND_VM_IP first)"
-echo "  nginx-public.conf  → scp to public nginx VM  (replace BACKEND_VM_IP first)"
+echo "  admin-ui/                        built admin UI    → /var/www/admin-ui/"
+echo "  invitee-ui/                      built invitee UI  → /var/www/invitee-ui/"
+echo "  party-time-backend-amd64.tar.gz  linux/amd64 image → docker load on the VM"
+echo "  nginx-admin.conf, nginx-public.conf  (legacy; the live configs are"
+echo "                                        Ansible group_vars in the homelab repo)"
 echo ""
-echo "On the backend VM:"
-echo "  1. Copy docker-compose.prod.yml + schema.sql"
-echo "  2. Create .env.prod (see sample.local.env for required vars)"
-echo "  3. docker compose -f docker-compose.prod.yml up -d"
+echo "Deploy with:"
+echo "  cd ~/Documents/Workspace/homelab/ansible"
+echo "  ansible-playbook ../deploy/party-time.yml -e party_time_repo=$ROOT"
