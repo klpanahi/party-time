@@ -6,7 +6,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o server .
 
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
+# tzdata is required: parseCentralTime() calls time.LoadLocation("America/Chicago"),
+# which reads /usr/share/zoneinfo. Without it every event create/update fails.
+RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /app/server .
 EXPOSE 8080
