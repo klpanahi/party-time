@@ -25,7 +25,9 @@ party-time/
 ├── docker-compose.local-edge.yml  Prod-shaped local nginx edge, used by e2e.sh
 ├── run_local.sh        Starts all three services at once
 ├── test.sh             Backend + both UI test suites (used by build.sh)
-└── e2e.sh              Smoke-tests the built UIs through the real nginx vhost configs
+├── e2e.sh              Smoke-tests the built UIs through the real nginx vhost configs
+├── build.sh            Builds artifacts + dist/manifest.json (release provenance)
+└── deploy.sh           Single post-merge deploy command — guards, build, ship, verify
 ```
 
 ## Running Locally
@@ -69,6 +71,24 @@ All seeded texts are terminal (`sent`/`failed`) with fake numbers — there are 
 ```
 
 `build.sh` runs `test.sh` as its first step.
+
+### Deploying
+
+`./deploy.sh` is the single post-merge command — see the "Deploying" section
+of [`README.md`](README.md) and the full procedure in
+[`ops/AGENT.md`](ops/AGENT.md). It refuses a dirty tree or a non-main branch
+before doing anything expensive, builds, ships the SHA-pinned image, verifies
+the playbook's `PLAY RECAP`, and confirms `/healthz` on both edges reports the
+SHA it just deployed.
+
+`GET /healthz` is registered on the public route set (`main.go`), so it exists
+on both the public and admin containers and both nginx vhosts
+(`deploy/nginx/public.conf`, `deploy/nginx/admin.conf`) proxy it explicitly —
+without an exact-match `location = /healthz` block it would otherwise be
+swallowed by the SPA fallback, since it doesn't match either vhost's API
+regex/prefix. It returns `{"ok":true,"sha":"<git sha>"}`, with the SHA
+compiled in at build time via `-ldflags -X main.buildSHA=<sha>` (see
+`public_backend/Dockerfile` and `build.sh`).
 
 ---
 

@@ -86,6 +86,7 @@ func newRouter() *gin.Engine {
 	r.GET("/invite/:id", testEnv.getInviteByID)
 	r.PUT("/invite/:id", testEnv.updateInvite)
 	r.GET("/event/:id", testEnv.getEventByID)
+	r.GET("/healthz", testEnv.getHealthz)
 	admin := r.Group("/admin")
 	admin.GET("/contacts", testEnv.adminGetContacts)
 	admin.POST("/contacts", testEnv.adminCreateContact)

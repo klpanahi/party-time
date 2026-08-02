@@ -31,8 +31,67 @@
   become: true
   vars:
     deploy_dest: /opt/party-time
-    backend_image_tar: "{{ party_time_repo }}/dist/party-time-backend-amd64.tar.gz"
+    manifest_path: "{{ party_time_repo }}/dist/manifest.json"
   tasks:
+    # ── Release provenance guards ──────────────────────────────────────────
+    # manifest.json is written by ./build.sh (dist/ is gitignored, so this is
+    # always a fresh local build, never a stale checked-in artifact).
+    - name: Check build manifest exists
+      ansible.builtin.stat:
+        path: "{{ manifest_path }}"
+      delegate_to: localhost
+      become: false
+      register: manifest_stat
+
+    - name: Fail if build manifest is missing
+      ansible.builtin.fail:
+        msg: >
+          {{ manifest_path }} not found. Run ./build.sh in the party-time
+          repo first — it cross-builds the linux/amd64 image and writes
+          dist/manifest.json describing it.
+      when: not manifest_stat.stat.exists
+
+    - name: Read build manifest
+      ansible.builtin.slurp:
+        path: "{{ manifest_path }}"
+      delegate_to: localhost
+      become: false
+      register: manifest_raw
+      when: manifest_stat.stat.exists
+
+    - name: Parse build manifest
+      ansible.builtin.set_fact:
+        build_manifest: "{{ manifest_raw.content | b64decode | from_json }}"
+      when: manifest_stat.stat.exists
+
+    - name: Fail if the working tree was dirty at build time
+      ansible.builtin.fail:
+        msg: >
+          dist/manifest.json reports dirty=true (sha {{ build_manifest.sha }},
+          branch {{ build_manifest.branch }}) — the image was built from
+          uncommitted changes. Commit and rebuild, or override with
+          -e allow_dirty=true if this is intentional (e.g. a config-only
+          nginx-only run).
+      when:
+        - build_manifest.dirty | bool
+        - not (allow_dirty | default(false) | bool)
+
+    - name: Fail if not deploying from main
+      ansible.builtin.fail:
+        msg: >
+          dist/manifest.json reports branch={{ build_manifest.branch }}, not
+          main (sha {{ build_manifest.sha }}). Deploys should ship main.
+          Override with -e allow_branch=true if this is an intentional
+          off-main deploy.
+      when:
+        - build_manifest.branch != "main"
+        - not (allow_branch | default(false) | bool)
+
+    - name: Set pinned image vars
+      ansible.builtin.set_fact:
+        pinned_image: "{{ build_manifest.image_tag }}"
+        backend_image_tar: "{{ party_time_repo }}/dist/{{ build_manifest.tarball }}"
+
     - name: Create deploy directory
       ansible.builtin.file:
         path: "{{ deploy_dest }}"
@@ -77,21 +136,21 @@
           linux/amd64 image and exports it to dist/.
       when: not image_tar_stat.stat.exists
 
-    - name: Ship backend image tarball
+    - name: Ship backend image tarball (SHA-named, from the manifest)
       ansible.posix.synchronize:
         src: "{{ backend_image_tar }}"
-        dest: "{{ deploy_dest }}/party-time-backend-amd64.tar.gz"
+        dest: "{{ deploy_dest }}/{{ build_manifest.tarball }}"
       register: image_shipped
 
     - name: Load backend image into Docker
       ansible.builtin.shell:
-        cmd: gunzip -c {{ deploy_dest }}/party-time-backend-amd64.tar.gz | docker load
+        cmd: gunzip -c {{ deploy_dest }}/{{ build_manifest.tarball }} | docker load
       register: image_load
       changed_when: "'Loaded image' in image_load.stdout"
 
     - name: Verify loaded image is amd64
       ansible.builtin.command:
-        cmd: docker image inspect party-time-backend:latest --format '{{ "{{" }}.Architecture{{ "}}" }}'
+        cmd: docker image inspect {{ pinned_image }} --format '{{ "{{" }}.Architecture{{ "}}" }}'
       register: image_arch
       changed_when: false
       failed_when: image_arch.stdout | trim != 'amd64'
@@ -111,6 +170,23 @@
     # in docker-compose.prod.yml. Nothing extra is needed here — starting the
     # stack below runs it.
 
+    # Pin the exact SHA-tagged image for this deploy. docker-compose.prod.yml
+    # reads PARTY_TIME_IMAGE via ${PARTY_TIME_IMAGE:-party-time-backend:latest}
+    # on public-backend, admin-backend, AND migrate, so all three run the
+    # identical build — otherwise migrate could apply a schema for a
+    # different binary than the one serving requests. docker compose's own
+    # `.env` file (auto-loaded from project_src, distinct from .env.prod
+    # which carries secrets and is never touched here) is the cleanest way to
+    # get a variable into docker_compose_v2's invocation of the `docker
+    # compose` CLI — the module has no per-service `environment:` passthrough
+    # of its own.
+    - name: Write compose .env with the pinned image tag
+      ansible.builtin.copy:
+        dest: "{{ deploy_dest }}/.env"
+        content: |
+          PARTY_TIME_IMAGE={{ pinned_image }}
+        mode: "0644"
+
     # build: never — the image is loaded above, already built. If it were ever
     # missing, compose fails loudly here rather than quietly attempting an
     # in-guest build against a source tree that is no longer shipped.
@@ -129,9 +205,20 @@
     # on migrate now do that gating declaratively, so nothing here needs those
     # values anymore.
 
+    - name: Write deploy record
+      ansible.builtin.copy:
+        dest: "{{ deploy_dest }}/DEPLOYED"
+        content: |
+          sha={{ build_manifest.sha }}
+          branch={{ build_manifest.branch }}
+          timestamp={{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}
+          operator={{ lookup('env', 'USER') }}
+        mode: "0644"
+
 - name: Deploy invitee UI to public nginx
   hosts: tag_nginx
   become: true
+  tags: [nginx]
   vars:
     nginx_remove_default_vhost: true
     nginx_upstreams:
@@ -168,6 +255,7 @@
 - name: Deploy admin UI to internal nginx
   hosts: tag_nginx_internal
   become: true
+  tags: [nginx]
   vars:
     nginx_remove_default_vhost: true
     nginx_upstreams:

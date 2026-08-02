@@ -176,7 +176,16 @@ GET  /invites
 GET  /invite/:id
 PUT  /invite/:id
 GET  /event/:id
+GET  /healthz
 ```
+
+`/healthz` returns `{"ok":true,"sha":"<git sha>"}`. The SHA is compiled in at
+build time (`-ldflags -X main.buildSHA=<sha>`, see `build.sh` and
+`public_backend/Dockerfile`), so it answers "which build is actually running"
+without SSH or guessing from container age. Both nginx vhosts proxy it via an
+explicit `location = /healthz` block — it doesn't match either vhost's
+API regex/prefix, so without that block it would fall through to the SPA
+fallback instead of reaching the backend.
 
 Admin routes, registered **only when `ADMIN_ENABLED=true`**, all under the `/admin` prefix:
 
@@ -195,6 +204,21 @@ There is **no delete route for any resource.** See hazard 11.
 
 ## Deploy Procedure
 
+Prefer `./deploy.sh` — it wraps every step below plus the guards documented
+here. It refuses a dirty tree or a non-main branch (before running anything
+expensive), refuses if local `main` is behind `origin/main`, runs `build.sh`,
+runs the playbook with output redirected to a timestamped log (never through
+a filter — see hazard 2), checks the `PLAY RECAP`, then verifies `/healthz`
+on both edges reports the SHA just built before running the smoke checks.
+`--nginx-only` limits it to the two nginx plays for a config-only change to
+`deploy/nginx/*.conf`. Override flags: `--allow-dirty`, `--allow-branch`.
+
+```bash
+cd ~/Documents/Workspace/party-time && ./deploy.sh
+```
+
+The manual steps it wraps, if you need to run them individually:
+
 ### Step 1 — Build and test locally
 
 ```bash
@@ -208,12 +232,25 @@ on any failure:
 2. `go test ./...` in `public_backend`
 3. `npx vitest run` in `admin_ui`
 4. `npx vitest run` in `invitee_ui`
-5. On green: builds `admin_ui/dist`, `invitee_ui/dist`, and the Docker image
-   `party-time-backend:latest`
+5. On green: builds `admin_ui/dist`, `invitee_ui/dist`, and the Docker image,
+   cross-tagged `party-time-backend:<sha>` and `party-time-backend:latest`,
+   with the SHA compiled into the binary via `-ldflags`
+6. Writes `dist/manifest.json` — `sha`, `branch`, `dirty`, `built_at`,
+   `image_tag`, `tarball` — the release provenance the deploy playbook reads
+   to gate the deploy and pin the image
 
 If `build.sh` fails, stop. Do not deploy.
 
 ### Step 2 — Deploy
+
+The playbook now reads `dist/manifest.json` before touching anything: it
+fails if the manifest is missing (run `./build.sh`), fails if `dirty: true`
+(override `-e allow_dirty=true`), and fails if `branch` isn't `main`
+(override `-e allow_branch=true`). It ships the SHA-named tarball the
+manifest points at, pins `PARTY_TIME_IMAGE=party-time-backend:<sha>` for all
+three compose services so `migrate` can never run a different build than the
+backends it's migrating for, and writes `/opt/party-time/DEPLOYED` (sha,
+branch, timestamp, operator) once the stack is up.
 
 The playbook now lives in `party-time` itself and needs `homelab`'s
 `ansible.cfg` on `ANSIBLE_CONFIG` so `roles_path` resolves the

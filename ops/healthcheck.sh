@@ -208,6 +208,36 @@ check_url "$ADMIN_API_URL" "admin API"
 check_url "$PUBLIC_URL"    "public site"
 
 # --------------------------------------------------------------------------
+section "9. Deployed SHA vs origin/main"
+# --------------------------------------------------------------------------
+# /healthz reports the SHA baked into the running binary at build time (see
+# build.sh's -ldflags injection). Comparing it to origin/main answers "is
+# prod running main?" without SSH or guessing from container age.
+check_sha() {
+    local label="$1" url="$2" want="$3"
+    local sha
+    sha=$(curl -s --max-time 10 "$url" 2>/dev/null | sed -n 's/.*"sha":"\([^"]*\)".*/\1/p')
+    if [ -z "$sha" ]; then
+        fail "$label /healthz -> no response or unparsable ($url)"
+    elif [ "$sha" = "$want" ]; then
+        pass "$label /healthz sha=$sha matches origin/main"
+    else
+        fail "$label /healthz sha=$sha, origin/main is $want — prod is not running main"
+    fi
+}
+
+# -C the repo root explicitly: this script is often run from elsewhere, and a
+# bare `git` would resolve against the caller's cwd (or fail outside a repo).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+origin_sha=$(git -C "$REPO_ROOT" rev-parse --short origin/main 2>/dev/null)
+if [ -z "$origin_sha" ]; then
+    fail "could not resolve origin/main locally (git fetch first?)"
+else
+    check_sha "public edge" "${PUBLIC_URL%/}/healthz" "$origin_sha"
+    check_sha "admin edge"  "${ADMIN_URL%/}/healthz"  "$origin_sha"
+fi
+
+# --------------------------------------------------------------------------
 printf '\n%s=======================================================%s\n' "$C_HEAD" "$C_OFF"
 if [ "$FAILED" -eq 0 ]; then
     printf '%s ALL CHECKS PASSED%s  (%d passed)\n' "$C_PASS" "$C_OFF" "$PASSED"
