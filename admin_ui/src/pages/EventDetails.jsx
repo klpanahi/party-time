@@ -537,14 +537,35 @@ function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
   )
 }
 
+function fallbackCopy(text, onSuccess) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  try {
+    if (document.execCommand('copy')) onSuccess()
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
+
 function InviteLink({ url }) {
   const [copied, setCopied] = useState(false)
 
   function copy() {
-    navigator.clipboard.writeText(url).then(() => {
+    const onCopied = () => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(onCopied).catch(() => fallbackCopy(url, onCopied))
+    } else {
+      fallbackCopy(url, onCopied)
+    }
   }
 
   return (
