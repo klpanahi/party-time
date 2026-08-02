@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Symlink this repo's skills (develop-party-time, deploy-party-time,
-# diagnose-party-time, party-time-create-event, plus any others added here
-# such as add-vitest) into ~/.claude/skills so they load no matter which
-# directory Claude Code is working from. Builds and deploys both run from
-# this repo now, but the symlink still matters when working from a sibling
-# repo (e.g. homelab) where repo-local skills would otherwise be invisible.
-# homelab's own generic skills (e.g. fix-homelab-mdns) are linked separately
-# by homelab/scripts/link-skills.sh.
+# diagnose-party-time, party-time-create-event, ship-party-time, plus any
+# others added here such as add-vitest) into ~/.claude/skills so they load
+# no matter which directory Claude Code is working from. Builds and deploys
+# both run from this repo now, but the symlink still matters when working
+# from a sibling repo (e.g. homelab) where repo-local skills would otherwise
+# be invisible. homelab's own generic skills (e.g. fix-homelab-mdns) are
+# linked separately by homelab/scripts/link-skills.sh.
+#
+# Globs .claude/skills/*/ directly, so a new skill directory here is picked
+# up automatically — no list to edit below.
 #
 # Idempotent. Refuses to clobber a real directory that isn't one of our symlinks.
 set -uo pipefail

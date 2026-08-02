@@ -1,12 +1,13 @@
 ---
 name: deploy-party-time
-description: Builds and deploys the party-time app to the homelab — runs the local test/build script on the Mac, then the Ansible deploy playbook that ships the backend image to the docker VM and the built UIs to the public and internal nginx VMs. Use when the user says "deploy party-time", "ship the app", "push the app to prod", "redeploy", "rebuild and deploy", "release party-time", "get it live", or has changed backend/frontend code and wants it running in the homelab. Also use for nginx-config-only changes, which take a different, much faster playbook path documented here.
+description: Deploys the party-time app to the homelab with ./deploy.sh, which builds locally, runs the Ansible playbook that ships the backend image to the docker VM and the built UIs to the public and internal nginx VMs, then verifies the live SHA matches what was built. Use when the user says "deploy party-time", "push the app to prod", "redeploy", "rebuild and deploy", "release party-time", "get it live", or has merged a change and wants it running in the homelab. Also covers the --nginx-only fast path for vhost-only changes and what each deploy guard refuses on. Not for opening a PR — that is ship-party-time.
 ---
 
 # Deploy party-time
 
-Two steps: **build on the Mac**, then **deploy with Ansible**. Never skip step 1 — the
-playbook ships whatever is currently in the repo's `dist/` directories.
+One command: `./deploy.sh`, run from `~/Documents/Workspace/party-time` on
+`main`. It wraps the build, the playbook, and verification, and refuses to
+run under conditions that would make "success" a lie.
 
 ## Prerequisites
 
@@ -14,7 +15,13 @@ playbook ships whatever is currently in the repo's `dist/` directories.
 - `/opt/party-time/.env.prod` exists on the docker VM. Secrets live on the VM and are
   never shipped from the control node. The playbook **fails fast by design** if it is
   missing — **do not create or copy that file**; tell the user it is missing and stop.
-- VMs already provisioned and `site.yml` applied.
+- VMs already provisioned and `homelab/ansible/site.yml` applied.
+- **First deploy carrying the goose migrations change only**: the one-time
+  production baseline in `ops/AGENT.md` ("One-time production baseline (goose
+  adoption)") must be run once, by hand, before `deploy.sh` — it has **not**
+  been run yet as of this writing. Without it, the `migrate` service will try
+  to `CREATE TABLE` on tables that already exist and fail. Check whether it's
+  been done before running a normal deploy after this change lands.
 
 Hosts (Ansible reaches them by IP via the Proxmox dynamic inventory):
 
@@ -24,136 +31,129 @@ Hosts (Ansible reaches them by IP via the Proxmox dynamic inventory):
 | docker | 192.168.68.78 | backend + Postgres |
 | nginx-internal | 192.168.68.85 | admin UI |
 
-## Which playbook do I need?
-
-| Change | Command | Time |
-|---|---|---|
-| Backend Go code, admin_ui, invitee_ui — anything in the app | Full deploy: Step 1 + Step 2 below | ~90 s total |
-| nginx config only (vhosts, headers, proxy rules) — public edge, edit `deploy/nginx/public.conf` | `cd ~/Documents/Workspace/party-time && ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD --limit tag_nginx` | seconds |
-| nginx config only — admin/internal, edit `deploy/nginx/admin.conf` | `cd ~/Documents/Workspace/party-time && ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD --limit tag_nginx_internal` | seconds |
-
-**Config-only nginx changes do NOT need the app deploy.** The full deploy re-runs the
-entire test suite and ships a fresh image — pointless work for an nginx header change.
-
-## Step 1 — Build (on the Mac)
-
-```bash
-cd ~/Documents/Workspace/party-time && ./build.sh
-```
-
-Runs Go backend tests (needs Docker for the Postgres test container), admin_ui vitest,
-and invitee_ui vitest. On green it builds `admin_ui/dist`, `invitee_ui/dist`, and
-**cross-builds the backend image for `linux/amd64`**, exporting
-`dist/party-time-backend-amd64.tar.gz`.
-
-The cross-build matters: the Mac is arm64 and the VMs are amd64. `build.sh` asserts the
-built image actually reports `amd64` and refuses to continue otherwise, so a silently
-wrong-architecture image cannot reach the VM. Takes ~56 s including the full test suite.
-
-`build.sh` uses `set -euo pipefail` — it exits non-zero on **any** test failure.
-**If it fails, stop.** Do not proceed to step 2, and do not "just deploy the UI anyway."
-Report the failing test.
-
-## Step 2 — Deploy (Ansible)
-
-The playbook has three plays:
-
-1. `tag_docker` — ship `party-time-backend-amd64.tar.gz`, `docker load` it, verify its
-   architecture on the VM, sync compose to `/opt/party-time`,
-   `docker_compose_v2` with `build: never` / `recreate: always`. Compose itself runs a
-   one-shot `migrate` service (embedded goose migrations) before either backend starts —
-   see `ops/AGENT.md` for the one-time production baseline step this requires before the
-   first deploy that carries a migrations change.
-2. `tag_nginx` — rsync `invitee_ui/dist` → `/var/www/invitee-ui`.
-3. `tag_nginx_internal` — rsync `admin_ui/dist` → `/var/www/admin-ui`.
-
-The playbook **fails fast if the image tarball is missing** — run `build.sh` first.
-`build: never` means a missing image errors loudly instead of silently falling back to
-an in-guest build.
-
-Deploy takes ~32 s. It used to recompile Go inside the 2 vCPU / 2 GB / no-swap VM and
-exceed a 600 s timeout; it no longer does. Even so, **run it in the background and watch
-a log file** — the rule below is about not losing diagnostics, and it still applies.
-
-> **NEVER pipe `ansible-playbook` through `| tail`, `| grep`, or anything else.**
-> The output buffers and is **completely lost** if the process is killed at a timeout,
-> leaving zero diagnostic information. This has already happened once and wasted
-> significant time.
+## The command
 
 ```bash
 cd ~/Documents/Workspace/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
-  ANSIBLE_FORCE_COLOR=0 nohup ansible-playbook deploy/party-time.yml \
-  -e party_time_repo=$PWD \
-  > /tmp/pt-deploy.log 2>&1 &
+./deploy.sh                 # normal deploy
+./deploy.sh --nginx-only    # fast path for an nginx-vhost-only change
+./deploy.sh --allow-dirty   # override the dirty-tree refusal
+./deploy.sh --allow-branch  # override the non-main-branch refusal
 ```
 
-Then poll the log rather than blocking on the playbook:
+### What it does, in order
 
-```bash
-tail -n 40 /tmp/pt-deploy.log
-```
+1. **Refuses a dirty tree** (`git status --porcelain` non-empty) unless
+   `--allow-dirty`. This check runs before anything expensive.
+2. **Refuses a non-`main` branch** unless `--allow-branch`.
+3. **Refuses if local `main` is behind `origin/main`** — `git fetch origin`,
+   then compares SHAs and the merge-base. Tells you to `git pull` instead of
+   overriding.
+4. **Builds** — `./build.sh` (skipped entirely with `--nginx-only`).
+5. **Deploys** — runs `deploy/party-time.yml`, output redirected to a
+   timestamped log under `dist/`, **never** through a filter (see below).
+   `--nginx-only` adds `--tags nginx`, scoping the playbook to the two nginx
+   plays; it does not touch the backend image.
+6. **Checks the `PLAY RECAP`** — requires every expected host (`docker`,
+   `nginx-cloudflared`, `nginx-internal`, or just the two nginx hosts for
+   `--nginx-only`) to actually appear in the recap with `failed=0` and
+   `unreachable=0`. An ansible-playbook that exits 0 because the dynamic
+   inventory failed to parse and matched no hosts would otherwise look like a
+   successful no-op deploy — this has happened before, so the script checks
+   for each expected host by name, not just "recap exists."
+7. **Verifies `/healthz` on both edges reports the SHA just built** (skipped
+   for `--nginx-only`, which never touches the backend). `GET /healthz`
+   returns `{"ok":true,"sha":"<sha>"}`, with the SHA compiled in via
+   `-ldflags -X main.buildSHA=<sha>`. This proves the *running* code matches
+   what was just deployed, not just that the playbook exited 0.
+8. **Runs smoke checks** — admin UI, admin API, public site all expected
+   200.
 
-Re-check every 30–60s. Expect a long, silent gap at "Build and start Docker stack" —
-that is normal, not a hang. Keep waiting; the log is your only diagnostic if it dies.
+Any refusal or failed check exits non-zero with a message explaining what to
+do; `deploy.sh` never reports success from the playbook exiting alone.
 
-### PLAY RECAP is the authoritative result
+### `--nginx-only` fast path
 
-```bash
-grep -A 10 'PLAY RECAP' /tmp/pt-deploy.log
-```
+For a change to `deploy/nginx/public.conf` or `deploy/nginx/admin.conf` only.
+It skips `build.sh` entirely, so it **requires `invitee_ui/dist` and
+`admin_ui/dist` to already exist** — it refuses with a clear message if
+either is missing, rather than shipping stale or absent web roots. Run
+`./build.sh` once first if you haven't built recently.
 
-Require `failed=0` **and** `unreachable=0` for **every** host: docker,
-nginx-cloudflared, nginx-internal. Anything else is a failed deploy.
+## Refusals and how to override
+
+| Refusal | Meaning | Override |
+|---|---|---|
+| Dirty working tree | Uncommitted changes would be baked into the build's provenance | `--allow-dirty` |
+| Not on `main` | Deploying a feature branch is almost always a mistake | `--allow-branch` |
+| Local `main` behind `origin/main` | You'd deploy stale code | `git pull`, no override |
+| `dist/manifest.json` missing (from `build.sh`/playbook) | Deploy needs the build's provenance | Run `./build.sh` |
+| `--nginx-only` but UI dists missing | Nothing to rsync | Run `./build.sh` once |
+| `PLAY RECAP` missing an expected host | Nothing was actually deployed to that host | Check the log — usually a dynamic-inventory parse failure |
+| `/healthz` SHA mismatch after deploy | The deployed binary isn't running the SHA just built | Investigate — do not re-run blindly |
+
+## Never pipe `ansible-playbook` through a filter
+
+> **Rule: never pipe `ansible-playbook` through `tail`, `head`, `grep`, or any
+> other filter.**
+
+Output buffers in the pipe. If the process is killed at a timeout, the
+buffered output is **lost entirely**, leaving zero diagnostic information
+about how far the deploy got. `deploy.sh` redirects to
+`dist/deploy-<timestamp>.log` instead — the log survives the process even if
+it's killed; a pipe does not. If you ever run the playbook by hand instead of
+through `deploy.sh`, follow the same rule.
+
+## Where the log goes
+
+`dist/deploy-<UTC timestamp>.log`, printed at the start of the run so it's
+findable even if the run is later killed. `grep -A 10 'PLAY RECAP'` on it is
+the authoritative result if you need to re-check by hand.
+
+## Timing reality
+
+Build ~56 s (full test suite included), deploy ~32 s. It used to recompile Go
+inside the 2 vCPU / 2 GB / no-swap docker VM and routinely exceeded a 600 s
+timeout — that's fixed (`build.sh` cross-builds `linux/amd64` locally and
+ships a tarball). Do not reintroduce an in-guest build.
 
 ## Verifying it actually applied
 
-**A timed-out deploy can leave nothing applied while looking like it ran.**
-**Never report success from the playbook exiting alone.** Always check freshness on the VM:
+`deploy.sh` does this for you (steps 6–8 above), but if you ever need to
+check by hand — a killed or timed-out deploy can leave nothing applied while
+looking like it ran:
 
 ```bash
 ssh ubuntu@docker.local 'docker ps --format "{{.Names}}\t{{.Status}}"; docker images party-time-backend --format "id={{.ID}} created={{.CreatedSince}}"'
 ```
 
-- Containers should show **seconds or minutes** of uptime.
-- The image should be **newly created**.
-
-If they are days or weeks old, **the deploy did not apply.** Say so plainly, investigate,
-and do not claim success.
-
-## Smoke test
-
-Ansible finishing is not the same as the app serving. Check both entry points:
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://nginx-internal.local/                  # admin UI      → 200
-curl -s -o /dev/null -w '%{http_code}\n' http://nginx-internal.local/admin/events      # admin API     → 200
-curl -s -o /dev/null -w '%{http_code}\n' https://party-time.panahi-systems.com/        # public (CF)   → 200
-```
-
-If any of these fail, hand off to the **`diagnose-party-time`** skill rather than guessing.
+Containers should show seconds/minutes of uptime and a newly created image.
+Hours or days old means the deploy did not apply.
 
 ## Troubleshooting pointers
 
-- **`.env.prod` missing on the docker VM** — expected fail-fast. Do not create or copy it.
-  Tell the user; the file is theirs to place.
-- **mDNS names fail to resolve mid-deploy** (`docker.local`, `nginx-internal.local`) —
-  known recurring fault; see the **`fix-homelab-mdns`** skill. Note that **Ansible is
-  unaffected**: it connects by IP via the Proxmox dynamic inventory. Only nginx upstreams
-  and your own `curl`/`ssh` by name break. Fall back to the IPs in the table above.
-- **Playbook process died / log ends mid-task** — assume nothing applied, verify freshness
-  on the VM (above), then re-run. Re-running is safe.
-- **Smoke test non-200 but recap clean** — `diagnose-party-time`.
+- **`.env.prod` missing on the docker VM** — expected fail-fast. Do not
+  create or copy it. Tell the user; the file is theirs to place.
+- **mDNS names fail to resolve mid-deploy** (`docker.local`,
+  `nginx-internal.local`) — known recurring fault; see the
+  **`fix-homelab-mdns`** skill. Ansible itself is unaffected (it connects by
+  IP via the Proxmox dynamic inventory); only nginx upstreams and your own
+  `curl`/`ssh` by name break.
+- **Playbook process died / log ends mid-task** — assume nothing applied,
+  verify freshness on the VM (above), then re-run `./deploy.sh`. Re-running
+  is safe.
+- **Smoke check or `/healthz` verification fails but recap is clean** — hand
+  off to `diagnose-party-time`.
 
 ## Notes
 
-- **Do not reintroduce an in-guest build.** The deploy used to compile Go on the docker VM
-  and took minutes; it now ships a locally cross-built image and takes ~32 s. If a build
-  problem tempts you toward `build: always`, fix the cross-build instead.
-- **`--platform linux/amd64` alone is not enough.** The Dockerfile pins its builder stage
-  to `FROM --platform=$BUILDPLATFORM` and compiles with `GOARCH=${TARGETARCH}`. Without
-  that, buildx runs the entire builder stage under QEMU emulation, which is *slower* than
-  the in-guest build it replaced. The goal is a native cross-compile, not emulation.
-- **Architecture is verified twice** — `build.sh` checks the built image reports `amd64`,
-  and the playbook re-checks after `docker load`. If either complains, do not work around
-  it; a wrong-architecture image will start and then crash on the VM.
+- **Do not reintroduce an in-guest build.** `build: never` in
+  `docker-compose.prod.yml` means a missing image fails loudly on the VM
+  instead of silently falling back to an in-guest compile.
+- **`--platform linux/amd64` alone is not enough** for the cross-build. The
+  Dockerfile pins its builder stage to `FROM --platform=$BUILDPLATFORM` and
+  compiles with `GOARCH=${TARGETARCH}`. Without that, buildx runs the whole
+  builder stage under QEMU emulation, which is *slower* than the in-guest
+  build it replaced.
+- Full manual procedure, hazards, and the one-time goose baseline step are in
+  `ops/AGENT.md` — this skill is the fast path through it.

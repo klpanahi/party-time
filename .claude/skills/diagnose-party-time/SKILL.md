@@ -13,13 +13,18 @@ Work top-down through the layers and prove each one before moving on.
 
 - **Work top-down. Do not guess.** Every claim you make must be backed by the output of a
   command you actually ran. "Probably the containers" is not a diagnosis.
+- **First question, before anything else: is the code you're debugging even live?**
+  Compare the deployed SHA to `origin/main` — see Step 0 below. Chasing a bug
+  that was already fixed on `main` but never deployed wastes the rest of this
+  workflow.
 - **Establish scope early**: is the *whole site* down, or does *one URL* misbehave?
-  A site-wide failure is Steps 0–4. A single misbehaving URL is Step 5.
+  A site-wide failure is Steps 0–5. A single misbehaving URL is Step 6.
 - **Never report it fixed without re-testing the original failing URL end to end.**
   A green `systemctl` is not a working site.
-- Read-only first. `ops/healthcheck.sh` in this repo sweeps every layer without
-  changing anything — run it first for a fast picture, then use the steps below to
-  drill into whatever it reported FAIL.
+- Read-only first. `ops/healthcheck.sh` in this repo sweeps every layer —
+  including the SHA-vs-origin/main check — without changing anything. Run it
+  first for a fast picture, then use the steps below to drill into whatever it
+  reported FAIL.
 
 ## Topology
 
@@ -42,10 +47,30 @@ SSH to any VM as `ubuntu@<ip>` or `ubuntu@<name>.local`.
 > **The nginx upstreams reference `docker.local` by mDNS name.** Keep that in mind at
 > every step — it is the single most common root cause.
 
-## Step 0 — Which layer failed? Read the error page
+## Step 0 — Is the running code even the code you're debugging?
 
-This is the highest-value single check. **Do it first.** The error page itself says which
-layer broke.
+Before touching any infrastructure layer, rule out the cheapest and most
+common cause of "I fixed this and it's still broken": the fix was never
+deployed.
+
+```bash
+curl -s https://party-time.panahi-systems.com/healthz
+curl -s http://nginx-internal.local/healthz
+git rev-parse --short origin/main
+```
+
+`/healthz` returns `{"ok":true,"sha":"<sha>"}`, compiled in at build time. If
+either edge's `sha` doesn't match `origin/main`, stop diagnosing the app —
+the fix hasn't shipped. Hand off to `deploy-party-time`. `ops/healthcheck.sh`
+(section 9) runs this exact comparison for both edges automatically.
+
+If `/healthz` itself doesn't respond, that's informative too — treat it the
+same as any other layer failure and continue with Step 1.
+
+## Step 1 — Which layer failed? Read the error page
+
+This is the highest-value single check for a site-wide failure. The error page itself
+says which layer broke.
 
 ```bash
 curl -s -D- -o /dev/null https://party-time.panahi-systems.com/
@@ -55,14 +80,14 @@ Inspect the status **and the content-type**:
 
 | What you see | What it means | Go to |
 |---|---|---|
-| Body `error code: 502` with `content-type: text/plain` | **Cloudflare's own** error page. The tunnel cannot reach nginx — nginx is likely **down**. | Step 2 |
-| An **HTML** 502 page from nginx | nginx is **up** but cannot reach the backend. | Step 3 |
-| Page shell loads, browser shows "Failed to fetch" / "Unexpected token '<'" | The HTML served fine; the SPA's XHR failed. | Step 4, then 5 |
+| Body `error code: 502` with `content-type: text/plain` | **Cloudflare's own** error page. The tunnel cannot reach nginx — nginx is likely **down**. | Step 3 |
+| An **HTML** 502 page from nginx | nginx is **up** but cannot reach the backend. | Step 4 |
+| Page shell loads, browser shows "Failed to fetch" / "Unexpected token '<'" | The HTML served fine; the SPA's XHR failed. | Step 5, then 6 |
 
 Do not skip this by assuming "502 means backend down". A Cloudflare 502 and an nginx 502
 point at completely different machines.
 
-## Step 1 — Is it just name resolution on the client?
+## Step 2 — Is it just name resolution on the client?
 
 If the user cannot reach `nginx-internal.local` at all, check the Mac first before
 blaming the server.
@@ -77,7 +102,7 @@ Compare **several** `.local` hosts at once. If *all* fail, the Mac is off the LA
 mDNS is dead locally. If only *some* fail, suspect an **avahi hostname conflict** →
 hand off to the **`fix-homelab-mdns`** skill.
 
-## Step 2 — Is nginx up?
+## Step 3 — Is nginx up?
 
 ```bash
 ssh ubuntu@192.168.68.77 'systemctl is-active nginx; sudo nginx -t'
@@ -89,7 +114,7 @@ ssh ubuntu@192.168.68.77 'systemctl is-active nginx; sudo nginx -t'
 > Symptom: `is-active` → `failed`, and `nginx -t` → `host not found in upstream "docker.local:8080"`.
 >
 > This means a **transient** DNS blip leaves nginx **permanently down** long after the
-> blip is over. Fix resolution first (Step 3 / `fix-homelab-mdns`), *then*
+> blip is over. Fix resolution first (Step 4 / `fix-homelab-mdns`), *then*
 > `sudo systemctl start nginx`. Restarting before resolution works will just fail again.
 
 Also check cloudflared on the same host:
@@ -101,7 +126,7 @@ ssh ubuntu@192.168.68.77 'systemctl is-active cloudflared; sudo journalctl -u cl
 > `Unable to reach the origin service ... dial tcp 127.0.0.1:80: connect: connection refused`
 > means **nginx is down**, NOT a tunnel problem. Do not go chasing Cloudflare.
 
-## Step 3 — Can nginx reach the backend?
+## Step 4 — Can nginx reach the backend?
 
 ```bash
 ssh ubuntu@192.168.68.77 'getent hosts docker.local; curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://docker.local:8080/invites'
@@ -132,7 +157,7 @@ Look for `connect() failed (113: No route to host) while connecting to upstream`
 **the upstream IP it actually used**. That IP is the evidence: compare it to the docker
 VM's real address.
 
-## Step 4 — Are the containers healthy?
+## Step 5 — Are the containers healthy?
 
 ```bash
 ssh ubuntu@docker.local 'docker ps --format "{{.Names}}\t{{.Status}}"; docker logs --tail 20 party-time-public'
@@ -152,7 +177,7 @@ ssh ubuntu@docker.local 'ip -4 -o addr show enp6s18; networkctl status enp6s18 |
 > **The containers keep running the entire time this is broken**, which makes it very
 > confusing — `docker ps` looks perfect while nothing can reach the box.
 
-## Step 5 — Application-level
+## Step 6 — Application-level
 
 Use this when the infrastructure is proven healthy but one URL misbehaves.
 
