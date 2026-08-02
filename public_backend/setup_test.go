@@ -16,6 +16,10 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// The one DSN for the test database. Both the test connection and the
+// migration run use it, so they can't end up pointed at different databases.
+const testDSN = "host=127.0.0.1 port=5432 user=myuser password=mypassword dbname=party_time_test sslmode=disable search_path=party_time"
+
 var (
 	testEnv *Env
 	testDB  *sqlx.DB
@@ -37,21 +41,20 @@ func TestMain(m *testing.M) {
 	}
 	adminDB.Close()
 
-	testDB, err = sqlx.Connect("postgres",
-		"host=127.0.0.1 port=5432 user=myuser password=mypassword dbname=party_time_test sslmode=disable search_path=party_time")
+	testDB, err = sqlx.Connect("postgres", testDSN)
 	if err != nil {
 		log.Fatalf("connect test db: %v", err)
 	}
 
-	// Drop and recreate schema so every run starts from a clean slate.
+	// Drop and recreate schema so every run starts from a clean slate, then
+	// run the same embedded-goose-migrations path production uses (see
+	// migrate.go) instead of loading schema.sql directly. This is what
+	// closes the migration-drift hazard: tests now exercise the exact code
+	// path that applies schema changes in production.
 	mustExec(testDB, `DROP SCHEMA IF EXISTS party_time CASCADE`)
-	mustExec(testDB, `CREATE SCHEMA party_time`)
-	mustExec(testDB, `GRANT ALL ON SCHEMA party_time TO myuser`)
-	schemaSQL, err := os.ReadFile("../schema.sql")
-	if err != nil {
-		log.Fatalf("read schema: %v", err)
+	if err := runMigrations(testDSN, []string{"up"}); err != nil {
+		log.Fatalf("run migrations: %v", err)
 	}
-	mustExec(testDB, string(schemaSQL))
 
 	testEnv = &Env{db: testDB, inviteeBase: "http://test.local"}
 

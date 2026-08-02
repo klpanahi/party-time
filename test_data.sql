@@ -1,5 +1,5 @@
 -- test_data.sql — local development seed data.
--- Loaded fresh on every `run_local.sh` startup (after schema.sql). NOT used by tests.
+-- Loaded fresh on every `run_local.sh` startup (after migrations run via goose). NOT used by tests.
 -- Goal: exercise most states an event, message, contact, invite, or text can be in.
 --
 -- All data is FAKE. Every seeded text is in a terminal state (sent/failed) — there are

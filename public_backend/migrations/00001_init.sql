@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE SCHEMA IF NOT EXISTS party_time;
 
 SET search_path TO party_time;
@@ -55,5 +56,11 @@ CREATE TABLE IF NOT EXISTS party_time.texts (
 
 CREATE INDEX IF NOT EXISTS texts_status_idx ON party_time.texts (status, created_at);
 
--- Seed data for local development lives in test_data.sql (loaded by run_local.sh).
--- This file stays purely structural so it can also build the test database.
+-- +goose Down
+DROP INDEX IF EXISTS party_time.texts_status_idx;
+DROP TABLE IF EXISTS party_time.texts;
+DROP TABLE IF EXISTS party_time.messages;
+DROP TABLE IF EXISTS party_time.invites;
+DROP TABLE IF EXISTS party_time.events;
+DROP TABLE IF EXISTS party_time.contacts;
+DROP SCHEMA IF EXISTS party_time CASCADE;

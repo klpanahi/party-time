@@ -19,7 +19,7 @@ party-time/
 ├── public_backend/     Go/Gin REST API — serves both UIs on :8080
 ├── admin_ui/           React admin portal — :5173 (ADMIN_ENABLED=true required)
 ├── invitee_ui/         React invitee portal — :5174
-├── schema.sql          Canonical DB schema (structural single source of truth)
+├── public_backend/migrations/  Goose migrations — canonical DB schema (embedded in the binary)
 ├── test_data.sql       Local dev seed data (loaded fresh by run_local.sh)
 ├── docker-compose.yml  Local PostgreSQL container
 └── run_local.sh              Starts all three services at once
@@ -48,7 +48,7 @@ npm run dev   # http://localhost:5173
 npm run dev   # http://localhost:5174
 ```
 
-`run_local.sh` waits for postgres to be ready, then **wipes the DB and reloads `schema.sql` + `test_data.sql` on every startup** (so each run starts from the same known seed). The backend uses `air` for live reload.
+`run_local.sh` waits for postgres to be ready, then **wipes the DB, runs `go run . migrate up`, and reloads `test_data.sql` on every startup** (so each run starts from the same known seed). The backend uses `air` for live reload.
 
 All seeded texts are terminal (`sent`/`failed`) with fake numbers — there are no `pending`/`sending` rows, so the text worker stays idle on startup and never sends. To test live Twilio delivery, set `TWILIO_*` and queue a message from the admin UI yourself.
 
@@ -66,7 +66,7 @@ Go 1.25 / Gin v1.12. Single binary on `:8080`. Admin routes are gated by `ADMIN_
 | `admin_handlers.go` | All `/admin/*` handlers + `buildInviteMessage()` |
 | `structs.go` | All request, response, and DB types |
 | `helpers.go` | `getenv()`, `loaddbconfig()`, `parseCentralTime()` |
-| `setup_test.go` | Test DB setup — loads `../schema.sql` via `os.ReadFile` |
+| `setup_test.go` | Test DB setup — runs the embedded goose migrations via `runMigrations` (`migrate.go`) |
 | `handlers_test.go` | Integration tests (all tests call `cleanDB` before running) |
 
 ### Environment Variables

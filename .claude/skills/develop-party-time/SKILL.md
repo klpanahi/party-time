@@ -22,7 +22,8 @@ diagnosing something already broken, use `diagnose-party-time`.
 | `public_backend/helpers.go` | `getenv`, `loaddbconfig`, `parseCentralTime` |
 | `public_backend/worker.go`, `sms.go` | Twilio outbox worker + `SMSSender` interface |
 | `public_backend/*_test.go` | Integration tests (need Docker for Postgres) |
-| `schema.sql` | Canonical schema. **Structural only** — no seed data |
+| `public_backend/migrations/*.sql` | Goose migrations — canonical schema, embedded in the binary |
+| `public_backend/migrate.go` | Wires goose to the embedded migrations; `runMigrations` is shared by prod and tests |
 | `test_data.sql` | Local dev seed data |
 | `admin_ui/src/` | Admin SPA. `api.js` is the whole API client |
 | `invitee_ui/src/` | Invitee SPA. `pages/InvitePage.jsx` is nearly all of it |
@@ -41,18 +42,19 @@ cd ~/Documents/Workspace/party-time
 Backend `:8080`, admin UI `:5173`, invitee UI `:5174`.
 
 > **`run_local.sh` is currently broken.** It resets the database with
-> `DROP SCHEMA public CASCADE`, but the schema was renamed to `party_time`.
-> `schema.sql` sets `search_path` only for its own psql session, so the separate
+> `DROP SCHEMA public CASCADE`, but the schema was renamed to `party_time`, so
+> `party_time` is never actually dropped and the `go run . migrate up` step
+> that now loads migrations runs against stale state, then the separate
 > session that loads `test_data.sql` fails with
-> `ERROR: relation "contacts" does not exist`, and `set -e` aborts the script.
-> Verified by replaying the exact command sequence.
+> `ERROR: relation "contacts" does not exist` if the schema really was empty.
+> `set -e` aborts the script either way.
 >
 > Until it is fixed, reset manually:
 > ```bash
 > docker compose up -d
 > docker compose exec -T postgres-db psql -U myuser -d party_time \
 >   -c "DROP SCHEMA IF EXISTS party_time CASCADE;"
-> docker compose exec -T postgres-db psql -U myuser -d party_time -f - < schema.sql
+> (cd public_backend && DBHOST=127.0.0.1 go run . migrate up)
 > docker compose exec -T postgres-db psql -U myuser -d party_time \
 >   -c "SET search_path TO party_time;" -f - < test_data.sql
 > ```
@@ -108,30 +110,23 @@ representation for the other.
 
 ### Change the database schema
 
-**There is no migration mechanism.** `schema.sql` is applied on every deploy,
-but every statement is `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
-EXISTS`. On a database where the table already exists, the whole statement is
-skipped — an added column is silently never created. Verified directly: adding a
-column to `schema.sql` and re-applying it leaves the live table unchanged.
+Schema changes are goose migrations in `public_backend/migrations/`, embedded
+in the binary via `//go:embed`. Add a new file, don't edit `00001_init.sql`:
 
-Tests do not catch this because `setup_test.go` drops and recreates the
-`party_time` schema from scratch on every run, so the new column always exists
-there.
+1. Create `public_backend/migrations/000NN_description.sql` with `-- +goose Up`
+   / `-- +goose Down` sections. Table-qualify everything under `party_time.`.
+2. `setup_test.go` runs the exact same migration path (`runMigrations` in
+   `migrate.go`) that production does, so a passing test suite now genuinely
+   proves the migration applies cleanly.
+3. Deploys run a one-shot `migrate` compose service
+   (`docker-compose.prod.yml`, `command: ["migrate", "up"]`) before either
+   backend container starts — no manual `ALTER TABLE` step is needed anymore.
+4. Check migration status against production with
+   `docker exec ... party-time-backend migrate status` if you need to verify
+   what's applied without deploying.
 
-To change the schema:
-
-1. Edit `schema.sql` so fresh databases are correct
-2. Write the matching `ALTER TABLE` and run it against production yourself:
-   ```bash
-   ssh ubuntu@docker.local 'source /opt/party-time/.env.prod; \
-     docker exec party-time-db psql -U "$DBUSER" -d party_time \
-     -c "ALTER TABLE party_time.events ADD COLUMN IF NOT EXISTS foo varchar;"'
-   ```
-3. Say explicitly in your summary that a manual ALTER was required and whether
-   you ran it — this is the single easiest thing to forget and the failure is
-   silent until a query hits the missing column
-
-New tables are fine: `CREATE TABLE IF NOT EXISTS` creates those normally.
+New tables and altered columns both go through this path now — there is no
+special case.
 
 ### Frontend-only change
 
@@ -186,18 +181,18 @@ Backend tests are real integration tests against a live Postgres (`party_time_te
 not mocks. They call `cleanDB` first. Frontend tests are Vitest + Testing Library
 + MSW, behaviour-focused rather than snapshot-based.
 
-**Two things the test suite structurally cannot catch**, because tests run on a
-dev host with a fresh database:
-
-- anything depending on the container image (missing tzdata being the known case)
-- schema drift on an existing database (see the migration trap above)
+**One thing the test suite structurally cannot catch**: anything depending on
+the container image (missing tzdata being the known case) — dev hosts have
+system zoneinfo regardless of what the image contains. Schema drift on an
+existing database is no longer in this category: tests now exercise the same
+goose migration path production uses.
 
 ## Traps
 
 | Trap | Consequence | Guard |
 |---|---|---|
 | New public path not in the nginx regex | SPA HTML served instead of the API; looks like a JSON parse error | Edit `deploy/nginx/public.conf` in this repo, or reuse an existing prefix |
-| Schema change via `schema.sql` alone | Column silently never created in production | Write and run an explicit `ALTER TABLE` |
+| Editing `00001_init.sql` instead of adding a new migration | goose sees the checksum change and refuses to apply, or the change never reaches an already-migrated database | Always add a new `000NN_*.sql` migration file |
 | Forgot the MSW handler | Unrelated frontend tests fail on an unmocked request | Update `test/msw/handlers.js` with every API change |
 | Hardcoding `http://localhost:8080` | Works in dev, breaks in production | Keep API calls same-origin |
 | Removing `time/tzdata` | Every event create/update 400s in production; tests still pass | Leave the blank import alone |
@@ -209,7 +204,7 @@ dev host with a fresh database:
 - [ ] `./build.sh` green (all three suites)
 - [ ] Tests added for the new behaviour, not just existing ones passing
 - [ ] MSW handlers updated if any endpoint changed
-- [ ] Schema change accompanied by an explicit `ALTER`, and you said whether it ran
+- [ ] Schema change added as a new goose migration file, not an edit to an existing one
 - [ ] New public path added to `deploy/nginx/public.conf` and applied, if applicable
 - [ ] Deployed with `deploy-party-time`, and **verified against the running app** —
       a passing build is not evidence the change works in production

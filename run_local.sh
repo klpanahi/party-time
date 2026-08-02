@@ -31,14 +31,19 @@ until docker-compose -f "$ROOT/docker-compose.yml" exec -T postgres-db pg_isread
   sleep 0.5
 done
 
-# Wipe the database and reload a fresh schema + local test data on every startup.
-echo "Resetting database (fresh schema + test data)..."
+# Wipe the database and reload fresh migrations + local test data on every startup.
+# NOTE: this script is still known-broken and is being fixed separately. The
+# reset below drops `public`, but the app's schema is `party_time`, so it does
+# not actually reset anything; the test_data.sql load then runs without
+# `search_path` set and aborts with `relation "contacts" does not exist`. Only
+# the schema.sql -> goose swap happened here.
+echo "Resetting database (fresh migrations + test data)..."
 psql() {
   docker-compose -f "$ROOT/docker-compose.yml" exec -T postgres-db \
     psql -U myuser -d party_time -v ON_ERROR_STOP=1 "$@"
 }
 psql -q -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-psql -q -f - < "$ROOT/schema.sql" >/dev/null
+(cd "$ROOT/public_backend" && DBHOST=127.0.0.1 go run . migrate up)
 psql -q -f - < "$ROOT/test_data.sql" >/dev/null
 echo "Database reset complete."
 

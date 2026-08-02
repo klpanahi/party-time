@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -27,6 +28,14 @@ type Env struct {
 }
 
 func main() {
+	// `party-time-backend migrate [up|status|down]` runs migrations and
+	// exits instead of starting the HTTP server. No-arg invocation keeps the
+	// default server behaviour unchanged.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		runMigrateSubcommand(os.Args[2:])
+		return
+	}
+
 	router := gin.Default()
 	adminEnabled := getenv("ADMIN_ENABLED", "false")
 	dbgcfg := loaddbconfig()

@@ -59,9 +59,11 @@ Report the failing test.
 The playbook has three plays:
 
 1. `tag_docker` — ship `party-time-backend-amd64.tar.gz`, `docker load` it, verify its
-   architecture on the VM, sync compose + schema to `/opt/party-time`,
-   `docker_compose_v2` with `build: never` / `recreate: always`, wait for Postgres,
-   apply `schema.sql`.
+   architecture on the VM, sync compose to `/opt/party-time`,
+   `docker_compose_v2` with `build: never` / `recreate: always`. Compose itself runs a
+   one-shot `migrate` service (embedded goose migrations) before either backend starts —
+   see `ops/AGENT.md` for the one-time production baseline step this requires before the
+   first deploy that carries a migrations change.
 2. `tag_nginx` — rsync `invitee_ui/dist` → `/var/www/invitee-ui`.
 3. `tag_nginx_internal` — rsync `admin_ui/dist` → `/var/www/admin-ui`.
 

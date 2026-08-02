@@ -104,15 +104,12 @@
         path: "{{ deploy_dest }}/public_backend"
         state: absent
 
-    - name: Remove schema.sql if Docker created it as a directory
-      ansible.builtin.file:
-        path: "{{ deploy_dest }}/schema.sql"
-        state: absent
-
-    - name: Sync schema.sql
-      ansible.posix.synchronize:
-        src: "{{ party_time_repo }}/schema.sql"
-        dest: "{{ deploy_dest }}/schema.sql"
+    # Schema application used to happen here via docker cp + psql -f schema.sql.
+    # That's retired: migrations now run as the one-shot `migrate` compose
+    # service (public_backend/migrations/*.sql via goose), serialized ahead of
+    # both backends by `depends_on: migrate: condition: service_completed_successfully`
+    # in docker-compose.prod.yml. Nothing extra is needed here — starting the
+    # stack below runs it.
 
     # build: never — the image is loaded above, already built. If it were ever
     # missing, compose fails loudly here rather than quietly attempting an
@@ -126,41 +123,11 @@
         recreate: always
         state: present
 
-    - name: Read DBUSER from .env.prod
-      ansible.builtin.shell:
-        cmd: grep '^DBUSER=' {{ deploy_dest }}/.env.prod | cut -d= -f2-
-      register: dbuser_out
-      changed_when: false
-
-    - name: Read DBNAME from .env.prod
-      ansible.builtin.shell:
-        cmd: grep '^DBNAME=' {{ deploy_dest }}/.env.prod | cut -d= -f2-
-      register: dbname_out
-      changed_when: false
-
-    - name: Wait for postgres to be ready
-      ansible.builtin.command:
-        cmd: docker exec party-time-db pg_isready -U "{{ dbuser_out.stdout }}"
-      register: pg_ready
-      until: pg_ready.rc == 0
-      retries: 15
-      delay: 3
-      changed_when: false
-
-    - name: Copy schema into postgres container
-      ansible.builtin.command:
-        cmd: docker cp {{ deploy_dest }}/schema.sql party-time-db:/tmp/schema.sql
-      changed_when: true
-
-    - name: Apply database schema
-      ansible.builtin.command:
-        cmd: >-
-          docker exec party-time-db
-          psql -U {{ dbuser_out.stdout | trim | default('myuser', true) }}
-          -d {{ dbname_out.stdout | trim | default('party_time', true) }}
-          -f /tmp/schema.sql
-      register: schema_out
-      changed_when: "'CREATE TABLE' in schema_out.stdout"
+    # DBUSER/DBNAME reads and the pg_isready wait that used to gate the manual
+    # schema apply were removed with it — docker-compose.prod.yml's own
+    # `condition: service_healthy` on postgres-db and `service_completed_successfully`
+    # on migrate now do that gating declaratively, so nothing here needs those
+    # values anymore.
 
 - name: Deploy invitee UI to public nginx
   hosts: tag_nginx

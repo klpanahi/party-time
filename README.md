@@ -69,10 +69,10 @@ ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
 `sample.local.env` with DB creds, Twilio vars, and `INVITEE_BASE_URL`. The
 playbook checks for it and fails fast rather than creating or copying it.
 
-The schema (`schema.sql`) is applied by the playbook on every deploy; every
-statement is `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, so
-column changes to an existing table need a manual `ALTER TABLE` — see
-`ops/AGENT.md` hazard 12.
+The schema is versioned as goose migrations in `public_backend/migrations/`,
+embedded in the backend binary and applied by a one-shot `migrate` service in
+`docker-compose.prod.yml` that runs before either backend starts — see
+`ops/AGENT.md` for details, including the one-time production baseline step.
 
 ### Proxmox networking
 

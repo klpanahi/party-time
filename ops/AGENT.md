@@ -159,7 +159,7 @@ its `README.md` for where everything went.
 | `invitee_ui/` | React invitee SPA. Route `/invite/:id` |
 | `build.sh` | Builds all artifacts, tests first |
 | `docker-compose.prod.yml` | The 3-service production stack |
-| `schema.sql` | Structural DDL only, applied on every deploy (idempotent `IF NOT EXISTS`) |
+| `public_backend/migrations/` | Goose migrations — canonical schema, embedded in the binary, applied by the one-shot `migrate` compose service |
 | `sample.local.env` | Template for `.env.prod` — documents every supported variable |
 | `deploy/party-time.yml` | Application deploy playbook (3 plays: docker backend, public nginx vhost + invitee UI, admin nginx vhost + admin UI) |
 | `deploy/nginx/public.conf` | Public vhost body — single source of truth, applied by `deploy/party-time.yml` via the `geerlingguy.nginx` role |
@@ -230,7 +230,7 @@ The playbook runs three plays:
 
 | Play | Hosts | Actions |
 |---|---|---|
-| Deploy party-time backend | `tag_docker` | rsync `docker-compose.prod.yml` + `schema.sql` to `/opt/party-time`; verify `.env.prod` exists; ship and `docker load` the prebuilt `linux/amd64` image, asserting its architecture; `docker_compose_v2` with `build: never`, `recreate: always`; wait for Postgres via `pg_isready`; `docker cp` and apply `schema.sql` |
+| Deploy party-time backend | `tag_docker` | rsync `docker-compose.prod.yml` to `/opt/party-time`; verify `.env.prod` exists; ship and `docker load` the prebuilt `linux/amd64` image, asserting its architecture; `docker_compose_v2` with `build: never`, `recreate: always` — compose's own `migrate` one-shot service runs the embedded goose migrations before either backend container starts |
 | Deploy invitee UI to public nginx | `tag_nginx` | rsync `invitee_ui/dist/` → `/var/www/invitee-ui/` (`delete: true`); apply the public vhost (`deploy/nginx/public.conf`) via the `geerlingguy.nginx` role |
 | Deploy admin UI to internal nginx | `tag_nginx_internal` | rsync `admin_ui/dist/` → `/var/www/admin-ui/` (`delete: true`); apply the admin vhost (`deploy/nginx/admin.conf`) via the `geerlingguy.nginx` role |
 
@@ -678,38 +678,46 @@ Keep this in mind when smoke-testing: every test event you create is permanent
 until manually cleaned up, and the two existing `Test Event` rows are there for
 exactly this reason.
 
-### 12. `schema.sql` cannot migrate an existing database
+### 12. `schema.sql` cannot migrate an existing database (RESOLVED — goose migrations adopted)
 
-Every statement in `schema.sql` is `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX
-IF NOT EXISTS`. The deploy playbook re-applies the file on every run, but on a
-database where the table already exists **the entire statement is skipped** — an
-added column is silently never created.
+Historically every statement in `schema.sql` was `CREATE TABLE IF NOT EXISTS` /
+`CREATE INDEX IF NOT EXISTS`, applied on every deploy. On a database where the
+table already existed, the whole statement was skipped — an added column was
+silently never created — and the test suite couldn't catch it because
+`setup_test.go` rebuilt the schema from scratch every run.
 
-Verified directly: adding a column to `schema.sql` and re-applying it against an
-existing database leaves the live table unchanged.
+Fixed. Schema is now goose migrations under `public_backend/migrations/`,
+embedded in the binary (`//go:embed migrations/*.sql`, wired in
+`public_backend/migrate.go`). A schema change is a new
+`000NN_description.sql` file, never an edit to an existing one. Both
+production and `setup_test.go` run the identical migration path via
+`runMigrations`/`goose.Up`, so a green test suite now proves the migration
+applies cleanly, not just that a from-scratch schema is correct.
 
-The test suite cannot catch this. `setup_test.go` drops and recreates the
-`party_time` schema from scratch on every run, so the new column always exists
-there while production lacks it.
+Production applies migrations via a one-shot `migrate` service in
+`docker-compose.prod.yml` (`command: ["migrate", "up"]`), gated on Postgres
+being healthy and gating both backend containers via
+`depends_on: migrate: condition: service_completed_successfully` — so
+migrations always run exactly once, before either backend starts, on every
+deploy.
 
-**There is no migration tooling.** A schema change requires editing `schema.sql`
-(so fresh databases are correct) *and* running an explicit `ALTER TABLE` against
-production by hand:
-
-```bash
-ssh ubuntu@docker.local 'source /opt/party-time/.env.prod; \
-  docker exec party-time-db psql -U "$DBUSER" -d party_time \
-  -c "ALTER TABLE party_time.events ADD COLUMN IF NOT EXISTS foo varchar;"'
-```
-
-New *tables* are unaffected — those are created normally.
+**One-time step required before the first deploy carrying this change** — see
+[One-time production baseline](#one-time-production-baseline-goose-adoption)
+below. `00001_init.sql` is the old `schema.sql` verbatim, so it is all
+`IF NOT EXISTS` and re-running it against production would *succeed silently*
+rather than error — which is the danger. Goose would record version 1 as
+applied without having applied it, and the baseline would look correct while
+resting on an unverified assumption that the live tables match the migration.
+Do the baseline step deliberately instead.
 
 ### 13. `run_local.sh` is broken (local development)
 
 The script resets the database with `DROP SCHEMA public CASCADE`, but the schema
-was renamed to `party_time`. `schema.sql` sets `search_path` only for its own
-psql session, so the separate session that loads `test_data.sql` fails with
-`ERROR: relation "contacts" does not exist`, and `set -e` aborts the run.
+was renamed to `party_time`, so the reset drops nothing the app uses. The
+separate session that loads `test_data.sql` then runs without `search_path` set
+and fails with `ERROR: relation "contacts" does not exist`, and `set -e` aborts
+the run. (The schema load is now `go run . migrate up` rather than a raw
+`schema.sql` apply, but that changed nothing about this hazard.)
 
 Verified by replaying the exact command sequence against a scratch Postgres
 container.
@@ -730,6 +738,54 @@ this repo and applying it with
 `ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD --limit tag_nginx`
 (with `ANSIBLE_CONFIG` set as in the Deploy Procedure above). Admin routes are
 unaffected, since `location /admin` proxies that whole prefix.
+
+---
+
+## One-time production baseline (goose adoption)
+
+**Do this exactly once, and BEFORE the first deploy that carries the goose
+migrations change** (see hazard 12). Production already has every table
+`00001_init.sql` would create, so goose must be told that migration is already
+applied rather than being allowed to run it — running it for real would fail
+on the first `CREATE TABLE` collision.
+
+```bash
+ssh ubuntu@docker.local
+source /opt/party-time/.env.prod
+docker exec party-time-db psql -U "$DBUSER" -d party_time -c \
+  "CREATE TABLE IF NOT EXISTS party_time.goose_db_version (id integer PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY, version_id bigint NOT NULL, is_applied boolean NOT NULL, tstamp timestamp NOT NULL DEFAULT now());
+   INSERT INTO party_time.goose_db_version (version_id, is_applied) VALUES (0, true), (1, true);"
+```
+
+> **Column layout verified against the installed goose v3 source**
+> (`github.com/pressly/goose/v3@v3.27.3`, `internal/dialects/postgres.go`,
+> `(*postgres).CreateTable`). Goose's own bootstrap DDL is:
+> ```sql
+> CREATE TABLE %s (
+>     id integer PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+>     version_id bigint NOT NULL,
+>     is_applied boolean NOT NULL,
+>     tstamp timestamp NOT NULL DEFAULT now()
+> )
+> ```
+> This differs from an earlier draft of this step in two ways: `id` is
+> `integer ... GENERATED BY DEFAULT AS IDENTITY`, not `serial`, and `tstamp`
+> is `NOT NULL`. The version numbers (`0` then `1`) are correct as drafted —
+> goose inserts an implicit `version_id=0` baseline row itself on a fresh
+> version table, and `00001_init.sql` is goose version `1`.
+
+Verify before deploying — run the `migrate` compose service's `status`
+variant, since `party-time-backend` lives in its own image, not in the
+`party-time-db` container:
+
+```bash
+ssh ubuntu@docker.local 'cd /opt/party-time && \
+  docker compose -f docker-compose.prod.yml run --rm migrate migrate status'
+```
+
+Expect `00001_init.sql` to show as already applied, and `migrate up` on the
+next deploy to report no pending migrations rather than attempting to create
+tables that already exist.
 
 ---
 
