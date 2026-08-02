@@ -1,0 +1,288 @@
+---
+# Deploy party-time application to the homelab.
+#
+# Prerequisites:
+#   1. All VMs provisioned and site.yml has been run (nginx, Docker installed).
+#   2. ./build.sh run in the party-time repo. It cross-builds the backend image
+#      for linux/amd64 and exports it to dist/party-time-backend-amd64.tar.gz
+#      along with the built UIs.
+#   3. /opt/party-time/.env.prod exists on the docker VM — create it from
+#      party-time/sample.local.env and fill in production values (DB creds, Twilio, etc.).
+#
+# The image is built on the control machine and shipped, not compiled on the VM.
+# The docker VM has 2 vCPU / 2 GB / no swap shared with Postgres, where a Go
+# build took minutes; shipping the image takes seconds. The backend is
+# CGO_ENABLED=0, so cross-compiling arm64 -> amd64 costs nothing.
+#
+# The two nginx plays below use the geerlingguy.nginx role to own their own
+# vhosts (upstream + extra_parameters sourced from deploy/nginx/*.conf in this
+# repo). That role lives in homelab/ansible/roles/ (gitignored, installed via
+# `ansible-galaxy install -r requirements.yml`), so this playbook must be run
+# with ANSIBLE_CONFIG pointed at homelab's ansible.cfg for roles_path to
+# resolve, from the party-time repo so `$PWD` is party_time_repo:
+#
+#   ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+#     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD
+#
+# That is the whole invocation. Prefer `./deploy.sh`, which wraps it.
+
+- name: Deploy party-time backend
+  hosts: tag_docker
+  become: true
+  vars:
+    deploy_dest: /opt/party-time
+    manifest_path: "{{ party_time_repo }}/dist/manifest.json"
+  tasks:
+    # ── Release provenance guards ──────────────────────────────────────────
+    # manifest.json is written by ./build.sh (dist/ is gitignored, so this is
+    # always a fresh local build, never a stale checked-in artifact).
+    - name: Check build manifest exists
+      ansible.builtin.stat:
+        path: "{{ manifest_path }}"
+      delegate_to: localhost
+      become: false
+      register: manifest_stat
+
+    - name: Fail if build manifest is missing
+      ansible.builtin.fail:
+        msg: >
+          {{ manifest_path }} not found. Run ./build.sh in the party-time
+          repo first — it cross-builds the linux/amd64 image and writes
+          dist/manifest.json describing it.
+      when: not manifest_stat.stat.exists
+
+    - name: Read build manifest
+      ansible.builtin.slurp:
+        path: "{{ manifest_path }}"
+      delegate_to: localhost
+      become: false
+      register: manifest_raw
+      when: manifest_stat.stat.exists
+
+    - name: Parse build manifest
+      ansible.builtin.set_fact:
+        build_manifest: "{{ manifest_raw.content | b64decode | from_json }}"
+      when: manifest_stat.stat.exists
+
+    - name: Fail if the working tree was dirty at build time
+      ansible.builtin.fail:
+        msg: >
+          dist/manifest.json reports dirty=true (sha {{ build_manifest.sha }},
+          branch {{ build_manifest.branch }}) — the image was built from
+          uncommitted changes. Commit and rebuild, or override with
+          -e allow_dirty=true if this is intentional (e.g. a config-only
+          nginx-only run).
+      when:
+        - build_manifest.dirty | bool
+        - not (allow_dirty | default(false) | bool)
+
+    - name: Fail if not deploying from main
+      ansible.builtin.fail:
+        msg: >
+          dist/manifest.json reports branch={{ build_manifest.branch }}, not
+          main (sha {{ build_manifest.sha }}). Deploys should ship main.
+          Override with -e allow_branch=true if this is an intentional
+          off-main deploy.
+      when:
+        - build_manifest.branch != "main"
+        - not (allow_branch | default(false) | bool)
+
+    - name: Set pinned image vars
+      ansible.builtin.set_fact:
+        pinned_image: "{{ build_manifest.image_tag }}"
+        backend_image_tar: "{{ party_time_repo }}/dist/{{ build_manifest.tarball }}"
+
+    - name: Create deploy directory
+      ansible.builtin.file:
+        path: "{{ deploy_dest }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Check .env.prod exists on docker VM
+      ansible.builtin.stat:
+        path: "{{ deploy_dest }}/.env.prod"
+      register: env_prod_stat
+
+    - name: Fail if .env.prod is missing
+      ansible.builtin.fail:
+        msg: >
+          {{ deploy_dest }}/.env.prod not found on {{ inventory_hostname }}.
+          Create it from party-time/sample.local.env and fill in production values.
+      when: not env_prod_stat.stat.exists
+
+    - name: Sync docker-compose.prod.yml
+      ansible.posix.synchronize:
+        src: "{{ party_time_repo }}/docker-compose.prod.yml"
+        dest: "{{ deploy_dest }}/docker-compose.prod.yml"
+
+    # The backend image is cross-built for linux/amd64 by build.sh on the control
+    # machine and shipped here as a tarball. The VM never compiles anything: it
+    # has 2 vCPU / 2 GB / no swap and shares them with Postgres, so an in-guest
+    # Go build took minutes and drove load average past 40.
+    - name: Check backend image tarball exists
+      ansible.builtin.stat:
+        path: "{{ backend_image_tar }}"
+      delegate_to: localhost
+      become: false
+      register: image_tar_stat
+
+    - name: Fail if backend image tarball is missing
+      ansible.builtin.fail:
+        msg: >
+          {{ backend_image_tar }} not found.
+          Run ./build.sh in the party-time repo first — it cross-builds the
+          linux/amd64 image and exports it to dist/.
+      when: not image_tar_stat.stat.exists
+
+    - name: Ship backend image tarball (SHA-named, from the manifest)
+      ansible.posix.synchronize:
+        src: "{{ backend_image_tar }}"
+        dest: "{{ deploy_dest }}/{{ build_manifest.tarball }}"
+      register: image_shipped
+
+    - name: Load backend image into Docker
+      ansible.builtin.shell:
+        cmd: gunzip -c {{ deploy_dest }}/{{ build_manifest.tarball }} | docker load
+      register: image_load
+      changed_when: "'Loaded image' in image_load.stdout"
+
+    - name: Verify loaded image is amd64
+      ansible.builtin.command:
+        cmd: docker image inspect {{ pinned_image }} --format '{{ "{{" }}.Architecture{{ "}}" }}'
+      register: image_arch
+      changed_when: false
+      failed_when: image_arch.stdout | trim != 'amd64'
+
+    # Left over from when the image was built on the VM. The compose file still
+    # carries a build: stanza, so stale source here could silently be used if a
+    # build were ever triggered again.
+    - name: Remove stale backend source from previous deploys
+      ansible.builtin.file:
+        path: "{{ deploy_dest }}/public_backend"
+        state: absent
+
+    # Schema application used to happen here via docker cp + psql -f schema.sql.
+    # That's retired: migrations now run as the one-shot `migrate` compose
+    # service (public_backend/migrations/*.sql via goose), serialized ahead of
+    # both backends by `depends_on: migrate: condition: service_completed_successfully`
+    # in docker-compose.prod.yml. Nothing extra is needed here — starting the
+    # stack below runs it.
+
+    # Pin the exact SHA-tagged image for this deploy. docker-compose.prod.yml
+    # reads PARTY_TIME_IMAGE via ${PARTY_TIME_IMAGE:-party-time-backend:latest}
+    # on public-backend, admin-backend, AND migrate, so all three run the
+    # identical build — otherwise migrate could apply a schema for a
+    # different binary than the one serving requests. docker compose's own
+    # `.env` file (auto-loaded from project_src, distinct from .env.prod
+    # which carries secrets and is never touched here) is the cleanest way to
+    # get a variable into docker_compose_v2's invocation of the `docker
+    # compose` CLI — the module has no per-service `environment:` passthrough
+    # of its own.
+    - name: Write compose .env with the pinned image tag
+      ansible.builtin.copy:
+        dest: "{{ deploy_dest }}/.env"
+        content: |
+          PARTY_TIME_IMAGE={{ pinned_image }}
+        mode: "0644"
+
+    # build: never — the image is loaded above, already built. If it were ever
+    # missing, compose fails loudly here rather than quietly attempting an
+    # in-guest build against a source tree that is no longer shipped.
+    - name: Start Docker stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ deploy_dest }}"
+        files:
+          - docker-compose.prod.yml
+        build: never
+        recreate: always
+        state: present
+
+    # DBUSER/DBNAME reads and the pg_isready wait that used to gate the manual
+    # schema apply were removed with it — docker-compose.prod.yml's own
+    # `condition: service_healthy` on postgres-db and `service_completed_successfully`
+    # on migrate now do that gating declaratively, so nothing here needs those
+    # values anymore.
+
+    - name: Write deploy record
+      ansible.builtin.copy:
+        dest: "{{ deploy_dest }}/DEPLOYED"
+        content: |
+          sha={{ build_manifest.sha }}
+          branch={{ build_manifest.branch }}
+          timestamp={{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}
+          operator={{ lookup('env', 'USER') }}
+        mode: "0644"
+
+- name: Deploy invitee UI to public nginx
+  hosts: tag_nginx
+  become: true
+  tags: [nginx]
+  vars:
+    nginx_remove_default_vhost: true
+    nginx_upstreams:
+      - name: public_backend
+        servers:
+          - "docker.local:8080"
+    nginx_vhosts:
+      - listen: "80 default_server"
+        server_name: "_"
+        root: /var/www/invitee-ui
+        index: index.html
+        filename: party-time-public.conf
+        extra_parameters: "{{ lookup('file', party_time_repo + '/deploy/nginx/public.conf') }}"
+  # pre_tasks always run before roles in a play, regardless of the order
+  # they're written in — so the static files land at /var/www/invitee-ui
+  # before the geerlingguy.nginx role (re)applies the vhost pointing at it.
+  pre_tasks:
+    - name: Create invitee UI web root
+      ansible.builtin.file:
+        path: /var/www/invitee-ui
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Sync invitee UI static files
+      ansible.posix.synchronize:
+        src: "{{ party_time_repo }}/invitee_ui/dist/"
+        dest: /var/www/invitee-ui/
+        delete: true
+  roles:
+    - geerlingguy.nginx
+
+- name: Deploy admin UI to internal nginx
+  hosts: tag_nginx_internal
+  become: true
+  tags: [nginx]
+  vars:
+    nginx_remove_default_vhost: true
+    nginx_upstreams:
+      - name: admin_backend
+        servers:
+          - "docker.local:8081"
+    nginx_vhosts:
+      - listen: "80 default_server"
+        server_name: "_"
+        root: /var/www/admin-ui
+        index: index.html
+        filename: party-time-admin.conf
+        extra_parameters: "{{ lookup('file', party_time_repo + '/deploy/nginx/admin.conf') }}"
+  # Same ordering rationale as the public-nginx play above.
+  pre_tasks:
+    - name: Create admin UI web root
+      ansible.builtin.file:
+        path: /var/www/admin-ui
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Sync admin UI static files
+      ansible.posix.synchronize:
+        src: "{{ party_time_repo }}/admin_ui/dist/"
+        dest: /var/www/admin-ui/
+        delete: true
+  roles:
+    - geerlingguy.nginx

@@ -8,6 +8,24 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Healthz
+// ---------------------------------------------------------------------------
+
+func TestHealthz(t *testing.T) {
+	r := newRouter()
+	w := do(t, r, "GET", "/healthz", nil)
+	assertStatus(t, w, 200)
+	var resp map[string]any
+	mustDecode(t, w, &resp)
+	if resp["ok"] != true {
+		t.Errorf("healthz ok = %v, want true", resp["ok"])
+	}
+	if resp["sha"] != "unknown" {
+		t.Errorf("healthz sha = %v, want %q (buildSHA is unset in tests)", resp["sha"], "unknown")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Contacts
 // ---------------------------------------------------------------------------
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -26,7 +27,20 @@ type Env struct {
 	sender      SMSSender
 }
 
+// buildSHA is set at build time via -ldflags "-X main.buildSHA=<sha>"
+// (see build.sh). It lets /healthz report exactly which build is running,
+// so a deploy can be verified by SHA instead of by guessing from timestamps.
+var buildSHA = "unknown"
+
 func main() {
+	// `party-time-backend migrate [up|status|down]` runs migrations and
+	// exits instead of starting the HTTP server. No-arg invocation keeps the
+	// default server behaviour unchanged.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		runMigrateSubcommand(os.Args[2:])
+		return
+	}
+
 	router := gin.Default()
 	adminEnabled := getenv("ADMIN_ENABLED", "false")
 	dbgcfg := loaddbconfig()
@@ -65,6 +79,10 @@ func main() {
 	router.GET("/invite/:id", env.getInviteByID)
 	router.PUT("/invite/:id", env.updateInvite)
 	router.GET("/event/:id", env.getEventByID)
+	// Registered on the public route set (not the admin group) so it exists
+	// on both containers — deploy.sh and ops/healthcheck.sh use it to verify
+	// which build is actually running behind each edge.
+	router.GET("/healthz", env.getHealthz)
 
 	if adminEnabled == "true" {
 		fmt.Println("Admin Portal enabled for this runtime, exposing admin endpoints...")
@@ -84,6 +102,10 @@ func main() {
 	}
 
 	router.Run(":8080")
+}
+
+func (env *Env) getHealthz(c *gin.Context) {
+	c.JSON(200, gin.H{"ok": true, "sha": buildSHA})
 }
 
 func (env *Env) getInvites(c *gin.Context) {

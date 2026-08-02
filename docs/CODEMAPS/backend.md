@@ -57,7 +57,7 @@ public_backend/helpers.go         getenv, loaddbconfig, parseCentralTime
 public_backend/handlers_test.go   integration tests: TestContacts, TestEvents (incl. update), TestAddInvitee,
                                    TestLaunchEvent, TestInviteeOrdering, TestSendMessage, TestGetTexts,
                                    TestGetInvite, TestUpdateInvite
-public_backend/setup_test.go      test DB setup — loads ../schema.sql via os.ReadFile; seed helpers:
+public_backend/setup_test.go      test DB setup — runs embedded goose migrations via runMigrations; seed helpers:
                                    seedContact, seedEvent, seedInvite, cleanDB, futureDate, pastDate
 ```
 

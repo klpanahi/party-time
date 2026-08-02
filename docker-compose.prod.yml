@@ -8,7 +8,6 @@ services:
       POSTGRES_PASSWORD: ${DBPASS:-mypassword}
       POSTGRES_DB: party_time
     volumes:
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DBUSER:-myuser}"]
@@ -16,9 +15,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot goose migration runner. Applies embedded migrations
+  # (public_backend/migrations/*.sql) against postgres-db and exits.
+  # public-backend/admin-backend depend on this completing successfully so
+  # the two backends can never race into the migrator concurrently.
+  migrate:
+    image: ${PARTY_TIME_IMAGE:-party-time-backend:latest}
+    container_name: party-time-migrate
+    command: ["migrate", "up"]
+    env_file: .env.prod
+    environment:
+      DBHOST: postgres-db
+      DBPORT: "5432"
+    restart: "no"
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+
   public-backend:
     build: ./public_backend
-    image: party-time-backend:latest
+    image: ${PARTY_TIME_IMAGE:-party-time-backend:latest}
     container_name: party-time-public
     restart: unless-stopped
     env_file: .env.prod
@@ -31,9 +47,11 @@ services:
     depends_on:
       postgres-db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   admin-backend:
-    image: party-time-backend:latest
+    image: ${PARTY_TIME_IMAGE:-party-time-backend:latest}
     container_name: party-time-admin
     restart: unless-stopped
     env_file: .env.prod
@@ -46,6 +64,8 @@ services:
     depends_on:
       postgres-db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

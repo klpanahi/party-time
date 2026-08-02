@@ -23,7 +23,7 @@ party-time/
 ├── public_backend/     Go/Gin API server (serves both UIs)
 ├── admin_ui/           React admin portal (event & contact mgmt)
 ├── invitee_ui/         React invitee portal (RSVP page)
-├── schema.sql          Canonical DB schema (structural single source of truth)
+├── public_backend/migrations/  Goose migrations — canonical DB schema (embedded in the binary)
 ├── test_data.sql       Local dev seed data (loaded fresh by run_local.sh)
 ├── docker-compose.yml  Local PostgreSQL container
 ├── run_local.sh        Starts all three services at once

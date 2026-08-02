@@ -1,0 +1,32 @@
+# Prod-shaped local edge stack: one nginx container fronting the locally
+# running backend (started separately via run_local.sh/air), used by e2e.sh.
+#
+# Production runs the public and admin vhosts as two separate nginx hosts,
+# with `upstream public_backend`/`admin_backend` blocks supplied by the
+# geerlingguy.nginx role (not by deploy/nginx/*.conf — those files are only
+# the vhost *bodies*). Here, deploy/local-edge/nginx.conf plays the role that
+# ansible role plays in prod: it defines the upstream blocks and the
+# server { listen; root; ... } wrappers, then `include`s the exact same
+# deploy/nginx/public.conf and deploy/nginx/admin.conf bodies used in
+# production — so there is exactly one copy of the routing/header logic.
+#
+# The backend itself is NOT a compose service — it runs on the host via
+# run_local.sh/air, same as normal local dev. nginx reaches it through
+# host.docker.internal, which Docker Desktop for Mac (this machine) resolves
+# to the host automatically; extra_hosts pins it explicitly for portability
+# to Docker setups where that isn't the default (e.g. Linux).
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: party-time-local-edge
+    ports:
+      - "8090:8090"   # public edge  (mirrors the public nginx VM, :80 in prod)
+      - "8091:8091"   # admin edge   (mirrors the internal nginx VM, :80 in prod)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./deploy/local-edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/public.conf:/etc/nginx/party-time/public.conf:ro
+      - ./deploy/nginx/admin.conf:/etc/nginx/party-time/admin.conf:ro
+      - ./invitee_ui/dist:/var/www/invitee-ui:ro
+      - ./admin_ui/dist:/var/www/admin-ui:ro

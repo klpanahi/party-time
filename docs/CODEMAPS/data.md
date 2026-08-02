@@ -55,7 +55,7 @@ events   ──< messages ──< texts
 ```
 
 ## Schema File
-`schema.sql` (repo root) — single consolidated DDL file; all tables in dependency order, purely structural. No separate migration files (boilerplate stage; data retention not required). Local dev seed lives in `test_data.sql`, loaded fresh on every `run_local.sh` start (after a `DROP SCHEMA public CASCADE` + reload). The test suite builds its own DB from `schema.sql` only.
+`public_backend/migrations/00001_init.sql` — a goose migration wrapping the former consolidated `schema.sql` DDL (all tables in dependency order). Embedded in the backend binary via `//go:embed migrations/*.sql` and applied through `migrate.go`'s `runMigrations`, used both by the `party-time-backend migrate up` production path and by `setup_test.go`. Local dev seed lives in `test_data.sql`, loaded fresh on every `run_local.sh` start (after `go run . migrate up`). Future schema changes are added as new `NNNNN_*.sql` migrations rather than edits to the initial file.
 
 ## Notes
 - Invite IDs are UUIDs — safe to embed in SMS links

@@ -19,10 +19,15 @@ party-time/
 ├── public_backend/     Go/Gin REST API — serves both UIs on :8080
 ├── admin_ui/           React admin portal — :5173 (ADMIN_ENABLED=true required)
 ├── invitee_ui/         React invitee portal — :5174
-├── schema.sql          Canonical DB schema (structural single source of truth)
+├── public_backend/migrations/  Goose migrations — canonical DB schema (embedded in the binary)
 ├── test_data.sql       Local dev seed data (loaded fresh by run_local.sh)
 ├── docker-compose.yml  Local PostgreSQL container
-└── run_local.sh              Starts all three services at once
+├── docker-compose.local-edge.yml  Prod-shaped local nginx edge, used by e2e.sh
+├── run_local.sh        Starts all three services at once
+├── test.sh             Backend + both UI test suites (used by build.sh)
+├── e2e.sh              Smoke-tests the built UIs through the real nginx vhost configs
+├── build.sh            Builds artifacts + dist/manifest.json (release provenance)
+└── deploy.sh           Single post-merge deploy command — guards, build, ship, verify
 ```
 
 ## Running Locally
@@ -30,6 +35,9 @@ party-time/
 ```bash
 # Start everything (postgres + backend with air + both UIs):
 ./run_local.sh
+
+# Restart without wiping the DB (keeps state you just created through the UI):
+./run_local.sh --no-reset
 ```
 
 Or individually:
@@ -48,9 +56,39 @@ npm run dev   # http://localhost:5173
 npm run dev   # http://localhost:5174
 ```
 
-`run_local.sh` waits for postgres to be ready, then **wipes the DB and reloads `schema.sql` + `test_data.sql` on every startup** (so each run starts from the same known seed). The backend uses `air` for live reload.
+`run_local.sh` waits for postgres to be ready, then **wipes the DB, runs `go run . migrate up`, and reloads `test_data.sql` on every startup** (so each run starts from the same known seed). The backend uses `air` for live reload.
 
 All seeded texts are terminal (`sent`/`failed`) with fake numbers — there are no `pending`/`sending` rows, so the text worker stays idle on startup and never sends. To test live Twilio delivery, set `TWILIO_*` and queue a message from the admin UI yourself.
+
+### Testing
+
+```bash
+./test.sh   # backend go test + admin_ui vitest + invitee_ui vitest, against a throwaway test Postgres
+./e2e.sh    # builds both UIs if needed, then smoke-tests them through a real nginx edge
+            # running the exact deploy/nginx/{public,admin}.conf vhost bodies — the only
+            # local check that proves a route is actually reachable through nginx, not
+            # silently swallowed by the SPA fallback
+```
+
+`build.sh` runs `test.sh` as its first step.
+
+### Deploying
+
+`./deploy.sh` is the single post-merge command — see the "Deploying" section
+of [`README.md`](README.md) and the full procedure in
+[`ops/AGENT.md`](ops/AGENT.md). It refuses a dirty tree or a non-main branch
+before doing anything expensive, builds, ships the SHA-pinned image, verifies
+the playbook's `PLAY RECAP`, and confirms `/healthz` on both edges reports the
+SHA it just deployed.
+
+`GET /healthz` is registered on the public route set (`main.go`), so it exists
+on both the public and admin containers and both nginx vhosts
+(`deploy/nginx/public.conf`, `deploy/nginx/admin.conf`) proxy it explicitly —
+without an exact-match `location = /healthz` block it would otherwise be
+swallowed by the SPA fallback, since it doesn't match either vhost's API
+regex/prefix. It returns `{"ok":true,"sha":"<git sha>"}`, with the SHA
+compiled in at build time via `-ldflags -X main.buildSHA=<sha>` (see
+`public_backend/Dockerfile` and `build.sh`).
 
 ---
 
@@ -66,7 +104,7 @@ Go 1.25 / Gin v1.12. Single binary on `:8080`. Admin routes are gated by `ADMIN_
 | `admin_handlers.go` | All `/admin/*` handlers + `buildInviteMessage()` |
 | `structs.go` | All request, response, and DB types |
 | `helpers.go` | `getenv()`, `loaddbconfig()`, `parseCentralTime()` |
-| `setup_test.go` | Test DB setup — loads `../schema.sql` via `os.ReadFile` |
+| `setup_test.go` | Test DB setup — runs the embedded goose migrations via `runMigrations` (`migrate.go`) |
 | `handlers_test.go` | Integration tests (all tests call `cleanDB` before running) |
 
 ### Environment Variables
