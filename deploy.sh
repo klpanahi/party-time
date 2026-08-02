@@ -90,7 +90,7 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 echo "Deploy log: $LOG_FILE"
 
-ANSIBLE_ARGS=(deploy/party-time.yml -e "party_time_repo=$ROOT")
+ANSIBLE_ARGS=("$ROOT/deploy/party-time.yml" -e "party_time_repo=$ROOT")
 [ "$ALLOW_DIRTY" = true ]  && ANSIBLE_ARGS+=(-e allow_dirty=true)
 [ "$ALLOW_BRANCH" = true ] && ANSIBLE_ARGS+=(-e allow_branch=true)
 if [ "$NGINX_ONLY" = true ]; then
@@ -101,8 +101,14 @@ else
 fi
 
 set +e
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
-  ansible-playbook "${ANSIBLE_ARGS[@]}" > "$LOG_FILE" 2>&1
+# Must run with cwd inside homelab/ansible: the dynamic inventory
+# (inventory/proxmox.yml) unvaults group_vars/all/vault.yml via a path
+# relative to the process's cwd, not to ansible.cfg's location. Running
+# from party-time's root makes that lookup fail, the inventory silently
+# parses as empty, and every play gets skipped with no error — see the
+# PLAY RECAP check below for why that used to look like a false success.
+(cd ~/Documents/Workspace/homelab/ansible && ANSIBLE_CONFIG=./ansible.cfg \
+  ansible-playbook "${ANSIBLE_ARGS[@]}") > "$LOG_FILE" 2>&1
 ANSIBLE_EXIT=$?
 set -e
 
@@ -143,7 +149,10 @@ for host in "${EXPECTED_HOSTS[@]}"; do
   fi
 done
 
-BAD_HOSTS="$(printf '%s\n' "$RECAP" | grep -vE 'failed=0.*unreachable=0' || true)"
+# awk, not grep -E 'failed=0.*unreachable=0': ansible's recap prints
+# unreachable= before failed=, so a single ordered regex silently flags every
+# healthy line as bad (seen in practice — see git history for this line).
+BAD_HOSTS="$(printf '%s\n' "$RECAP" | awk '!/failed=0/ || !/unreachable=0/' || true)"
 if [ -n "$BAD_HOSTS" ]; then
   echo "REFUSING: non-zero failed/unreachable in play recap:" >&2
   echo "$BAD_HOSTS" >&2

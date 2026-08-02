@@ -22,7 +22,7 @@ services:
   migrate:
     image: ${PARTY_TIME_IMAGE:-party-time-backend:latest}
     container_name: party-time-migrate
-    command: ["migrate", "up"]
+    command: ["./server", "migrate", "up"]
     env_file: .env.prod
     environment:
       DBHOST: postgres-db
