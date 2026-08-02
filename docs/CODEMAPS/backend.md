@@ -1,15 +1,16 @@
-<!-- Generated: 2026-06-11 | Files scanned: 8 | Token estimate: ~600 -->
+<!-- Generated: 2026-08-02 | Files scanned: 9 | Token estimate: ~620 -->
 
 # Backend
 
 ## Entry Point
-`public_backend/main.go` — sets up Gin router, DB connection, CORS, route registration
+`public_backend/main.go` — sets up Gin router, DB connection, CORS, route registration; includes build-time SHA injection
 
 ## Routes
 
 ### Public (always enabled)
 ```
-GET  /invites              → getInvites           → SELECT * FROM invites
+GET  /healthz              → getHealthz            → returns {ok: true, sha: buildSHA} (deployment verification)
+GET  /invites              → getInvites            → SELECT * FROM invites
 GET  /invite/:id           → getInviteByID         → JOIN invites+contacts+events, record opened_at
 PUT  /invite/:id           → updateInvite          → UPDATE attending, additional_guests
 GET  /event/:id            → getEventByID          → SELECT * FROM events
@@ -54,9 +55,9 @@ public_backend/worker.go          background text worker: poll, claim, send, sta
 public_backend/sms.go             SMSSender interface + twilioSender + newTwilioSender
 public_backend/structs.go         all request/response/DB structs (139 lines)
 public_backend/helpers.go         getenv, loaddbconfig, parseCentralTime
-public_backend/handlers_test.go   integration tests: TestContacts, TestEvents (incl. update), TestAddInvitee,
+public_backend/handlers_test.go   integration tests: TestHealthz, TestContacts, TestEvents (incl. update), TestAddInvitee,
                                    TestLaunchEvent, TestInviteeOrdering, TestSendMessage, TestGetTexts,
-                                   TestGetInvite, TestUpdateInvite
+                                   TestGetInvite, TestGetInvites, TestGetEventByID, TestUpdateInvite, TestAdminEdgeCases
 public_backend/setup_test.go      test DB setup — runs embedded goose migrations via runMigrations; seed helpers:
                                    seedContact, seedEvent, seedInvite, cleanDB, futureDate, pastDate
 ```

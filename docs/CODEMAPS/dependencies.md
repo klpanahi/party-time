@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-11 | Files scanned: 3 | Token estimate: ~220 -->
+<!-- Generated: 2026-08-02 | Files scanned: 4 | Token estimate: ~240 -->
 
 # Dependencies
 
@@ -8,6 +8,8 @@ github.com/gin-gonic/gin v1.12.0       HTTP router + middleware
 github.com/gin-contrib/cors v1.7.7     CORS middleware
 github.com/jmoiron/sqlx v1.4.0        SQL query helper (db.Select, db.Get)
 github.com/lib/pq v1.12.1             PostgreSQL driver
+github.com/pressly/goose/v3 v3.27.3   Schema migration runner (embedded in binary via //go:embed)
+github.com/twilio/twilio-go v1.30.9   Twilio SMS API client
 ```
 
 ## Admin UI (npm)
@@ -34,5 +36,10 @@ SMS provider  Texts queued in `texts` table (external delivery not in this repo)
 ```
 
 ## Dev Tools
-`docker-compose.yml` (repo root) — local Postgres
-`run_local.sh` (repo root) — starts all three services (backend + both UIs)
+```
+docker-compose.yml      Local PostgreSQL container (postgres-db service, user=myuser, db=party_time)
+run_local.sh            Starts all three services: backend (port 8080), admin UI (5173), invitee UI (5174)
+                        Supports --no-reset to skip DB wipe and preserve UI-created state
+public_backend/Dockerfile  Multi-stage cross-compile build (arm64 host → amd64 target);
+                        includes build-time SHA injection; runtime image is alpine + tzdata
+```

@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-11 | Files scanned: 30 | Token estimate: ~400 -->
+<!-- Generated: 2026-08-02 | Files scanned: 35 | Token estimate: ~420 -->
 
 # Architecture
 
@@ -26,6 +26,10 @@ party-time/
 ├── public_backend/migrations/  Goose migrations — canonical DB schema (embedded in the binary)
 ├── test_data.sql       Local dev seed data (loaded fresh by run_local.sh)
 ├── docker-compose.yml  Local PostgreSQL container
+├── deploy/             Deployment artifacts
+│   ├── party-time.yml  Ansible playbook (cross-build backend, deploy to docker VM)
+│   ├── local-edge/     Local dev edge reverse proxy (nginx)
+│   └── nginx/          Vhost configs for nginx role (dropped into /etc/nginx/conf.d/)
 ├── run_local.sh        Starts all three services at once
 └── AGENT.md            Project-wide developer guide
 ```

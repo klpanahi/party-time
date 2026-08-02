@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-11 | Files scanned: 19 | Token estimate: ~500 -->
+<!-- Generated: 2026-08-02 | Files scanned: 21 | Token estimate: ~510 -->
 
 # Frontend
 

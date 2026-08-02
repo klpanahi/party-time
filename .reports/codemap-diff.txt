@@ -1,28 +1,128 @@
-Codemap Diff Report — 2026-06-11 (update #3)
-=============================================
+CODEMAP REFRESH REPORT
+Generated: 2026-08-02
+Previous Scan: 2026-06-11 (all 5 files)
 
-## Since Last Scan (update #2)
+SUMMARY OF CHANGES
+==================
 
-### Files Modified
-- public_backend/setup_test.go  — added pastDate() helper alongside futureDate()
-- public_backend/coverage.out   — new untracked file (generated; not tracked in codemaps)
-- invitee_ui/coverage/*.html    — generated coverage reports (not tracked in codemaps)
+FILES UPDATED: 5/5 (architecture.md, backend.md, data.md, frontend.md, dependencies.md)
 
-### Codemaps Updated
-- docs/CODEMAPS/backend.md — expanded handlers_test.go entry to list all 9 test suites
-                              (TestContacts, TestEvents, TestAddInvitee, TestLaunchEvent,
-                               TestInviteeOrdering, TestSendMessage, TestGetTexts,
-                               TestGetInvite, TestUpdateInvite);
-                              expanded setup_test.go entry to document seed helpers
+ARCHITECTURE.MD (~5% change)
+----------------------------
+CHANGES MADE:
+- Added deploy/ directory to Monorepo Layout section
+  * deploy/party-time.yml — Ansible playbook for cross-build and deploy
+  * deploy/local-edge/ — local edge reverse proxy (nginx)
+  * deploy/nginx/ — vhost configs for nginx role
 
-### No Changes Needed
-- docs/CODEMAPS/architecture.md
-- docs/CODEMAPS/frontend.md
-- docs/CODEMAPS/data.md
-- docs/CODEMAPS/dependencies.md
+CONTEXT: Commits bda9911 (Own deploy), 425176d (Add release provenance) added
+infrastructure-as-code for production deployment (Ansible playbook + nginx configs).
+This architecture was previously missing from the codemaps entirely.
 
-### Architecture Changes
-None — no new routes, services, or tables since update #2.
+BACKEND.MD (~10% change)
+------------------------
+CHANGES MADE:
+- Added /healthz route to Public routes section
+  * Returns {ok: true, sha: buildSHA} for deployment verification
+  * Allows deploy/ops to verify which build is running behind each edge
+- Updated Entry Point description to note build-time SHA injection
+- Expanded test list in Key Files section
+  * Added: TestHealthz, TestGetInvites, TestGetEventByID, TestAdminEdgeCases
 
-### Staleness Warnings
-None — all codemaps current as of 2026-06-11.
+CONTEXT: Commit 2315fb2 (infrastructure consolidation) and f9b5d5c (fix local loop)
+added /healthz endpoint. Commit f9b5d5c added comprehensive test coverage. These tests
+all existed in main.go already; backend.md simply failed to document them completely.
+
+DATA.MD (~8% change)
+--------------------
+CHANGES MADE:
+- Updated table definitions to reflect party_time schema namespace
+- Corrected data types: int → bigint for FK fields (matches actual schema)
+- Added NULL annotations to accurately reflect nullable columns
+- Updated Schema File section to describe goose (v3.27.3) migration system
+  * Now references CLI: `party-time-backend migrate [up|status|down]`
+  * Notes //go:embed mechanism for embedding migrations in binary
+
+CONTEXT: Commit 6750de3 (Replace schema.sql with embedded goose migrations) moved
+schema from consolidated schema.sql to goose migrations. Commit 408f641 added
+party_time schema namespace. Codemaps now reflect the actual current schema structure.
+
+FRONTEND.MD (~2% change)
+------------------------
+CHANGES MADE:
+- Updated Generated timestamp to 2026-08-02
+- Incremented Files scanned (19 → 21) to reflect current coverage
+- Incremented Token estimate (~500 → ~510)
+
+NO CONTENT CHANGES: API structure remains unchanged. Note that admin_ui/src/api.js
+changed BASE from 'http://localhost:8080/admin' to '/admin' (relative path for vite
+proxy), but this is a dev deployment concern, not an API structure change.
+
+DEPENDENCIES.MD (~15% change)
+-----------------------------
+CHANGES MADE:
+- Added two new Go dependencies in Backend section:
+  * github.com/pressly/goose/v3 v3.27.3 (schema migration runner)
+  * github.com/twilio/twilio-go v1.30.9 (SMS API client)
+- Expanded Dev Tools section to multi-line format with detail:
+  * Clarified docker-compose.yml postgres service details
+  * Added run_local.sh --no-reset flag documentation
+  * Added public_backend/Dockerfile multi-stage build details, including
+    cross-compile support (arm64 host → amd64 target) and SHA injection
+
+CONTEXT: Commit 6a0b8d5 (Adding twilio integration) added twilio-go. Commit 6750de3
+(Replace schema.sql with embedded goose migrations) added goose/v3. These were missing
+from the original 2026-06-11 codemap. Dockerfile infrastructure (commits 30fb947,
+5c38d08) added cross-compile build support for production deployment.
+
+ADDITIONAL ARCHITECTURE NOTES
+=============================
+
+NEW ROUTES ADDED:
+- GET /healthz → returns build SHA for deployment verification (not user-facing)
+
+NEW INFRASTRUCTURE:
+- deploy/party-time.yml: Ansible playbook for production deployment
+  * Prerequisites: VMs provisioned, nginx/Docker installed, .env.prod configured
+  * Flow: Build locally (cross-compile arm64→amd64), ship image to docker VM
+  * Includes build-time release provenance guards (manifest.json verification)
+- deploy/nginx/: vhost configs sourced by geerlingguy.nginx Ansible role
+  * deploy/nginx/admin-upstream.conf, deploy/nginx/public-upstream.conf
+  * Dropped into /etc/nginx/conf.d/ to survive homelab site.yml re-runs
+  * Separate upstream addresses allow admin and public backends to run on different ports
+
+NEW DEPENDENCIES INTEGRATED:
+- goose/v3 for schema version control (replaced ad-hoc schema.sql)
+- twilio-go for SMS sending via Twilio API
+- Both integrated into production build pipeline (cross-compile + deploy)
+
+LOCAL DEV IMPROVEMENTS:
+- run_local.sh now supports --no-reset flag for non-destructive backend restart
+- Dockerfile refined for production multi-stage build with proper architecture targeting
+
+STALENESS ASSESSMENT
+====================
+
+All codemaps verified against current committed HEAD state. No staleness detected
+in routes, data structures, or core architecture. Previous gaps (missing deploy
+infrastructure, missing dependencies) have been filled.
+
+DIFF DETECTION RESULTS
+======================
+
+No single file exceeded 30% change threshold. Largest changes:
+- dependencies.md: ~15% (added 2 deps, expanded dev tools section)
+- backend.md: ~10% (added 1 route, expanded test list)
+- data.md: ~8% (updated schema namespace, corrected FK types)
+- architecture.md: ~5% (added deploy/ section)
+- frontend.md: ~2% (header update only)
+
+All changes are substantive additions reflecting actual source code evolution
+since 2026-06-11. No silent overwrites; all changes documented above.
+
+Next codemap refresh recommended when:
+- New database migrations added (update data.md)
+- New top-level routes added (update backend.md)
+- New major dependencies added (update dependencies.md)
+- Monorepo structure changes (update architecture.md)
+- UI page structure changes (update frontend.md)

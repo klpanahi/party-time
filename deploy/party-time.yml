@@ -221,10 +221,6 @@
   tags: [nginx]
   vars:
     nginx_remove_default_vhost: true
-    nginx_upstreams:
-      - name: public_backend
-        servers:
-          - "docker.local:8080"
     nginx_vhosts:
       - listen: "80 default_server"
         server_name: "_"
@@ -249,6 +245,24 @@
         src: "{{ party_time_repo }}/invitee_ui/dist/"
         dest: /var/www/invitee-ui/
         delete: true
+
+    # Dropped into conf.d rather than templated into nginx.conf via the
+    # role's nginx_upstreams var — homelab's site.yml rewrites nginx.conf on
+    # every baseline run without knowing about this upstream, which would
+    # wipe an nginx_upstreams-embedded definition and orphan the vhost
+    # below's proxy_pass. A standalone conf.d file survives that rewrite.
+    # No handler notify here: this runs in pre_tasks, which Ansible flushes
+    # handlers for *before* the geerlingguy.nginx role below. Notifying a
+    # reload here would fire while nginx.conf still has the old
+    # nginx_upstreams-embedded public_backend block on disk, producing a
+    # duplicate-upstream conflict. The role's own config-copy task rewrites
+    # nginx.conf (dropping that embedded block), validates the merged
+    # config, and reloads — by which point this file is the only definition.
+    - name: Install public_backend upstream
+      ansible.builtin.copy:
+        src: "{{ party_time_repo }}/deploy/nginx/public-upstream.conf"
+        dest: /etc/nginx/conf.d/party-time-public-upstream.conf
+        mode: "0644"
   roles:
     - geerlingguy.nginx
 
@@ -258,10 +272,6 @@
   tags: [nginx]
   vars:
     nginx_remove_default_vhost: true
-    nginx_upstreams:
-      - name: admin_backend
-        servers:
-          - "docker.local:8081"
     nginx_vhosts:
       - listen: "80 default_server"
         server_name: "_"
@@ -284,5 +294,16 @@
         src: "{{ party_time_repo }}/admin_ui/dist/"
         dest: /var/www/admin-ui/
         delete: true
+
+    # See the public_backend upstream install task in the play above for why
+    # this lives in conf.d instead of the role's nginx_upstreams var, and
+    # why it doesn't notify a reload directly (pre_tasks handlers flush
+    # before the role rewrites nginx.conf, which would create a
+    # duplicate-upstream conflict with the still-present embedded block).
+    - name: Install admin_backend upstream
+      ansible.builtin.copy:
+        src: "{{ party_time_repo }}/deploy/nginx/admin-upstream.conf"
+        dest: /etc/nginx/conf.d/party-time-admin-upstream.conf
+        mode: "0644"
   roles:
     - geerlingguy.nginx
