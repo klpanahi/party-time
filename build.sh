@@ -7,56 +7,29 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DIST="$ROOT/dist"
 
-# Ensure postgres is stopped on exit (success or failure).
-cleanup() {
-  echo ""
-  echo "Stopping test database..."
-  docker compose -f "$ROOT/docker-compose.yml" stop postgres-db 2>/dev/null || true
-}
-trap cleanup EXIT
-
 echo "=== party-time build ==="
 echo ""
 
-# ── 1. Test database ─────────────────────────────────────────────────────────
-echo "[1/7] Starting test database..."
-docker compose -f "$ROOT/docker-compose.yml" up -d postgres-db
-until docker compose -f "$ROOT/docker-compose.yml" exec -T postgres-db pg_isready -q 2>/dev/null; do
-  sleep 0.5
-done
-echo "      Ready."
-
-# ── 2. Backend tests ──────────────────────────────────────────────────────────
-echo "[2/7] Running backend tests..."
-(cd "$ROOT/public_backend" && go test ./... -count=1)
+# ── 1. Test suite (backend + both UIs) ────────────────────────────────────────
+# test.sh owns the test-database lifecycle (start before, stop after) itself,
+# so there is nothing left for build.sh to start or clean up here.
+echo "[1/4] Running test suite..."
+"$ROOT/test.sh"
 echo "      Passed."
 
-# ── 3. Admin UI: install, test ────────────────────────────────────────────────
-echo "[3/7] Running admin UI tests..."
-(cd "$ROOT/admin_ui" && npm ci --silent && npx vitest run)
-echo "      Passed."
-
-# ── 4. Invitee UI: install, test ─────────────────────────────────────────────
-echo "[4/7] Running invitee UI tests..."
-(cd "$ROOT/invitee_ui" && npm ci --silent && npx vitest run)
-echo "      Passed."
-
-# All tests green — stop the test DB before building.
-docker compose -f "$ROOT/docker-compose.yml" stop postgres-db
-
-# ── 5. Build admin UI ─────────────────────────────────────────────────────────
-echo "[5/7] Building admin UI..."
+# ── 2. Build admin UI ─────────────────────────────────────────────────────────
+echo "[2/4] Building admin UI..."
 (cd "$ROOT/admin_ui" && npm run build)
 
-# ── 6. Build invitee UI ───────────────────────────────────────────────────────
-echo "[6/7] Building invitee UI..."
+# ── 3. Build invitee UI ───────────────────────────────────────────────────────
+echo "[3/4] Building invitee UI..."
 (cd "$ROOT/invitee_ui" && npm run build)
 
-# ── 7. Cross-build backend image for the VMs ─────────────────────────────────
+# ── 4. Cross-build backend image for the VMs ─────────────────────────────────
 # The VMs are amd64 and this machine is likely arm64. Building here and shipping
 # the result replaces an in-guest compile that took minutes on a 2 vCPU / 2 GB /
 # no-swap VM competing with Postgres.
-echo "[7/7] Cross-building backend image for linux/amd64..."
+echo "[4/4] Cross-building backend image for linux/amd64..."
 docker buildx build \
   --platform linux/amd64 \
   --pull \

@@ -23,6 +23,12 @@ export ADMIN_ENABLED="true" ##The app currently only runs in admin mode
 air
 ```
 
+Or use `./run_local.sh` from the repo root to start postgres + backend (air) + both UIs
+together; pass `--no-reset` to restart without wiping the database. `./test.sh` runs the
+full test suite (backend + both UIs) against a throwaway test Postgres, and `./e2e.sh`
+smoke-tests the built UIs through a real nginx edge running the production vhost configs
+(`deploy/nginx/public.conf` / `admin.conf`) — see `AGENT.md` for details.
+
 This app will consist of 3 code bases
 
 - An invite portal (party_invite)
@@ -46,7 +52,7 @@ The production stack runs on three Proxmox VMs:
 ./build.sh
 ```
 
-Runs the full test suite (Go backend tests require Docker for Postgres, frontend tests use vitest), then on green builds:
+Runs `./test.sh` (Go backend tests require Docker for Postgres, frontend tests use vitest), then on green builds:
 - `dist/admin-ui/` — built React admin UI
 - `dist/invitee-ui/` — built React invitee UI
 - `dist/party-time-backend-amd64.tar.gz` — cross-built `linux/amd64` Docker image, tarred for shipping
