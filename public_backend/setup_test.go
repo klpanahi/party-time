@@ -38,15 +38,15 @@ func TestMain(m *testing.M) {
 	adminDB.Close()
 
 	testDB, err = sqlx.Connect("postgres",
-		"host=127.0.0.1 port=5432 user=myuser password=mypassword dbname=party_time_test sslmode=disable")
+		"host=127.0.0.1 port=5432 user=myuser password=mypassword dbname=party_time_test sslmode=disable search_path=party_time")
 	if err != nil {
 		log.Fatalf("connect test db: %v", err)
 	}
 
 	// Drop and recreate schema so every run starts from a clean slate.
-	mustExec(testDB, `DROP SCHEMA public CASCADE`)
-	mustExec(testDB, `CREATE SCHEMA public`)
-	mustExec(testDB, `GRANT ALL ON SCHEMA public TO myuser`)
+	mustExec(testDB, `DROP SCHEMA IF EXISTS party_time CASCADE`)
+	mustExec(testDB, `CREATE SCHEMA party_time`)
+	mustExec(testDB, `GRANT ALL ON SCHEMA party_time TO myuser`)
 	schemaSQL, err := os.ReadFile("../schema.sql")
 	if err != nil {
 		log.Fatalf("read schema: %v", err)

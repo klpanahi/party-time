@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw'
 
-export const BASE = 'http://localhost:8080/admin'
+export const BASE = 'http://localhost:3000/admin'
 
 export const EVENT_ID = 'event-123'
 export const CONTACT_ID = 'contact-abc'

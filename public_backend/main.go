@@ -8,6 +8,12 @@ import (
 	"syscall"
 	"time"
 
+	// Embeds the IANA timezone database in the binary. The production image is
+	// Alpine with no tzdata package, and CGO_ENABLED=0 rules out the system
+	// fallback, so parseCentralTime's LoadLocation("America/Chicago") fails
+	// there without this — breaking every event create and update.
+	_ "time/tzdata"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -81,6 +87,7 @@ func main() {
 }
 
 func (env *Env) getInvites(c *gin.Context) {
+	// TODO make sure this only gets the invites for a give contact/user - I'm not sure this call is currently scoped appropriately
 	invites := []Invite{}
 	sql := "SELECT id, attending, additional_guests, event_id, contact_id FROM invites"
 	err := env.db.Select(&invites, sql)

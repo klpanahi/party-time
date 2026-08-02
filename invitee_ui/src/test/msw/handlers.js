@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw'
 
 export const INVITE_ID = 'test-invite-abc'
-export const BASE = 'http://localhost:8080'
+export const BASE = 'http://localhost:3000'
 
 export const defaultInvite = {
   id: INVITE_ID,

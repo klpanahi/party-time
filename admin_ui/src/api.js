@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:8080/admin'
+const BASE = '/admin'
 
 async function request(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {

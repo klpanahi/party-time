@@ -131,6 +131,9 @@ func (env *Env) adminCreateEvent(c *gin.Context) {
 
 	date, err := parseCentralTime(req.Date)
 	if err != nil {
+		// Logged because this also fires when the timezone database is
+		// unavailable, which is not a client error.
+		fmt.Println("parseCentralTime:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, expected YYYY-MM-DDTHH:MM"})
 		return
 	}
@@ -158,6 +161,9 @@ func (env *Env) adminUpdateEvent(c *gin.Context) {
 
 	date, err := parseCentralTime(req.Date)
 	if err != nil {
+		// Logged because this also fires when the timezone database is
+		// unavailable, which is not a client error.
+		fmt.Println("parseCentralTime:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, expected YYYY-MM-DDTHH:MM"})
 		return
 	}

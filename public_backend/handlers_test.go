@@ -167,6 +167,27 @@ func TestEvents(t *testing.T) {
 		}
 	})
 
+	t.Run("create event with date including seconds returns 201", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events", map[string]any{
+			"name":        "Seconds Party",
+			"date":        "2099-07-04T18:00:30",
+			"description": "Test",
+			"location":    "Venue",
+		})
+		assertStatus(t, w, 201)
+	})
+
+	t.Run("update event with date including seconds returns 200", func(t *testing.T) {
+		eventID := seedEvent(t, "Seconds Update", futureDate(), "draft")
+		w := do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
+			"name":        "Seconds Update",
+			"date":        "2099-09-01T09:30:00",
+			"description": "Updated",
+			"location":    "New Venue",
+		})
+		assertStatus(t, w, 200)
+	})
+
 	t.Run("invalid date returns 400", func(t *testing.T) {
 		w := do(t, r, "POST", "/admin/events", map[string]any{
 			"name":        "Bad Date",
