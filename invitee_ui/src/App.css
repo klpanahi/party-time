@@ -209,8 +209,43 @@ body {
   font-size: 13px;
 }
 
-.status-saving { color: #6b7280; }
-.status-saved  { color: #16a34a; font-weight: 500; }
+.status-saving {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #d1d5db;
+  border-top-color: #6b7280;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.status-saved {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #16a34a;
+  background: #dcfce7;
+  padding: 5px 12px;
+  border-radius: 999px;
+  animation: pop-in 220ms ease-out;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.85) translateY(2px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 .status-error  { color: #dc2626; }
 
 /* Co-invitees */

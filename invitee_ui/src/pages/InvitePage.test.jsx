@@ -76,6 +76,23 @@ describe('InvitePage', () => {
     await screen.findByText(/saved/i)
   })
 
+  it('disables RSVP and guest buttons while a save is in flight', async () => {
+    server.use(
+      http.put(`${BASE}/invite/:id`, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return HttpResponse.json({})
+      })
+    )
+    renderInvite()
+    await screen.findByText('Hi Alex! 👋')
+    await userEvent.click(screen.getByRole('button', { name: /attending/i }))
+    expect(screen.getByText(/saving/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /attending/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '+' })).toBeDisabled()
+    await screen.findByText(/saved/i)
+    expect(screen.getByRole('button', { name: /attending/i })).not.toBeDisabled()
+  })
+
   it('shows the error card when the PUT call fails', async () => {
     server.use(
       http.put(`${BASE}/invite/:id`, () =>
