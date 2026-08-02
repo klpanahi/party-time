@@ -49,26 +49,30 @@ The production stack runs on three Proxmox VMs:
 Runs the full test suite (Go backend tests require Docker for Postgres, frontend tests use vitest), then on green builds:
 - `dist/admin-ui/` — built React admin UI
 - `dist/invitee-ui/` — built React invitee UI
-- `dist/nginx-admin.conf` — nginx config for admin VM
-- `dist/nginx-public.conf` — nginx config for public VM
-- Docker image `party-time-backend:latest` (used for both backend containers)
+- `dist/party-time-backend-amd64.tar.gz` — cross-built `linux/amd64` Docker image, tarred for shipping
 
-### Deploying nginx VMs
+### Deploying nginx vhosts and the backend
 
-1. Replace `BACKEND_VM_IP` in the nginx conf with the backend VM's internal IP
-2. Copy the conf to `/etc/nginx/sites-available/party-time` and enable it
-3. Copy the UI build to the nginx root (`/var/www/admin-ui/` or `/var/www/invitee-ui/`)
+Deployment is via the Ansible playbook `deploy/party-time.yml` in this repo — see
+[`ops/AGENT.md`](ops/AGENT.md) for the full procedure, including the nginx vhost
+bodies at `deploy/nginx/public.conf` and `deploy/nginx/admin.conf` (the single
+source of truth for both edges), and the `ops/incident-log.md` /
+`ops/healthcheck.sh` companions. Summary:
 
-### Deploying the backend VM
+```bash
+cd ~/Documents/Workspace/party-time
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+  ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD
+```
 
-1. Copy `docker-compose.prod.yml` and `schema.sql` to the VM
-2. Create `.env.prod` (use `sample.local.env` as reference — set DB creds, Twilio vars, `INVITEE_BASE_URL`)
-3. Run:
-   ```bash
-   docker compose -f docker-compose.prod.yml up -d
-   ```
+`.env.prod` must already exist on the backend (docker) VM — created from
+`sample.local.env` with DB creds, Twilio vars, and `INVITEE_BASE_URL`. The
+playbook checks for it and fails fast rather than creating or copying it.
 
-The schema is applied automatically on first boot via the Postgres `docker-entrypoint-initdb.d` mount. Subsequent restarts leave existing data intact.
+The schema (`schema.sql`) is applied by the playbook on every deploy; every
+statement is `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, so
+column changes to an existing table need a manual `ALTER TABLE` — see
+`ops/AGENT.md` hazard 12.
 
 ### Proxmox networking
 

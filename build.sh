@@ -80,8 +80,10 @@ rm -rf "$DIST"
 mkdir -p "$DIST"
 cp -r "$ROOT/admin_ui/dist"            "$DIST/admin-ui"
 cp -r "$ROOT/invitee_ui/dist"          "$DIST/invitee-ui"
-cp    "$ROOT/deploy/nginx-public.conf" "$DIST/"
-cp    "$ROOT/deploy/nginx-admin.conf"  "$DIST/"
+# The nginx vhost bodies are NOT bundled here. deploy/nginx/{public,admin}.conf
+# are read directly from the repo by the playbook (lookup('file', ...)) and
+# mounted straight into the local edge stack, so there is exactly one copy and
+# nothing to keep in sync.
 
 # The deploy playbook ships this tarball and docker-loads it on the VM, so the
 # VM never compiles anything. gzip because it crosses the network.
@@ -95,9 +97,8 @@ echo "Artifacts in dist/:"
 echo "  admin-ui/                        built admin UI    → /var/www/admin-ui/"
 echo "  invitee-ui/                      built invitee UI  → /var/www/invitee-ui/"
 echo "  party-time-backend-amd64.tar.gz  linux/amd64 image → docker load on the VM"
-echo "  nginx-admin.conf, nginx-public.conf  (legacy; the live configs are"
-echo "                                        Ansible group_vars in the homelab repo)"
 echo ""
 echo "Deploy with:"
-echo "  cd ~/Documents/Workspace/homelab/ansible"
-echo "  ansible-playbook ../deploy/party-time.yml -e party_time_repo=$ROOT"
+echo "  cd $ROOT"
+echo "  ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \\"
+echo "    ansible-playbook deploy/party-time.yml -e party_time_repo=$ROOT"
