@@ -7,8 +7,23 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     proxy: {
-      '/invite': 'http://localhost:8080',
-      '/event':  'http://localhost:8080',
+      // '/invite/:id' and '/event/:id' are both API routes and SPA routes —
+      // a browser navigation (Accept: text/html) must get the React shell,
+      // while the SPA's own fetch() calls must reach the backend. Mirrors
+      // the Accept-based split in deploy/nginx/public.conf; without it,
+      // opening an invite link in dev renders raw JSON instead of the page.
+      '/invite': {
+        target: 'http://localhost:8080',
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) return '/index.html'
+        },
+      },
+      '/event': {
+        target: 'http://localhost:8080',
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) return '/index.html'
+        },
+      },
     },
   },
   test: {

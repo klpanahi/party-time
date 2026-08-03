@@ -136,6 +136,7 @@ export default function InvitePage() {
                     key={opt.value}
                     className={`rsvp-btn rsvp-${opt.value.toLowerCase()} ${rsvp === opt.value ? 'selected' : ''}`}
                     onClick={() => handleRSVP(opt.value)}
+                    disabled={status === 'saving'}
                   >
                     <span className="rsvp-icon">{opt.icon}</span>
                     <span className="rsvp-label">{opt.label}</span>
@@ -154,12 +155,13 @@ export default function InvitePage() {
                     <button
                       className="counter-btn"
                       onClick={() => handleGuestChange(-1)}
-                      disabled={guests === 0}
+                      disabled={guests === 0 || status === 'saving'}
                     >−</button>
                     <span className="guest-count">{guests}</span>
                     <button
                       className="counter-btn"
                       onClick={() => handleGuestChange(1)}
+                      disabled={status === 'saving'}
                     >+</button>
                   </div>
                 </div>
@@ -168,8 +170,15 @@ export default function InvitePage() {
 
             {/* Save status */}
             <div className="save-status" aria-live="polite">
-              {status === 'saving' && <span className="status-saving">Saving…</span>}
-              {status === 'saved'  && <span className="status-saved">Saved ✓</span>}
+              {status === 'saving' && (
+                <span className="status-saving">
+                  <span className="spinner" />
+                  Saving…
+                </span>
+              )}
+              {status === 'saved' && (
+                <span key="saved" className="status-saved">Response Sent! ✓</span>
+              )}
               {status === 'error'  && <span className="status-error">Couldn't save, try again</span>}
             </div>
           </>
