@@ -62,6 +62,23 @@ func (env *Env) adminUpdateContact(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// requireActiveEvent guards the handlers that mutate an event or its audience.
+// A canceled or deleted event is a historical record: its details, invitee
+// list, and outgoing messages are frozen. Writes the response and reports false
+// when the event is missing or no longer active, so callers just return.
+func (env *Env) requireActiveEvent(c *gin.Context, eventID string) bool {
+	var status string
+	if err := env.db.QueryRow("SELECT status FROM events WHERE id = $1", eventID).Scan(&status); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return false
+	}
+	if status == "canceled" || status == "deleted" {
+		c.JSON(http.StatusConflict, gin.H{"error": "event is " + status + " and can no longer be modified"})
+		return false
+	}
+	return true
+}
+
 func (env *Env) adminGetEvents(c *gin.Context) {
 	events := []EventSummary{}
 	sql := `
@@ -74,6 +91,7 @@ func (env *Env) adminGetEvents(c *gin.Context) {
 			SUM(CASE WHEN i.attending = 'No Response' THEN 1 ELSE 0 END)       AS no_response
 		FROM events e
 		LEFT JOIN invites i ON i.event_id = e.id
+		WHERE e.status != 'deleted'
 		GROUP BY e.id
 		ORDER BY e.date`
 	if err := env.db.Select(&events, sql); err != nil {
@@ -87,8 +105,10 @@ func (env *Env) adminGetEvents(c *gin.Context) {
 func (env *Env) adminGetEvent(c *gin.Context) {
 	id := c.Param("id")
 
+	// Deleted events are hidden here too, not just in the list — a bookmarked
+	// /event/:id URL must not resurrect one.
 	event := Event{}
-	if err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1", id); err != nil {
+	if err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1 AND status != 'deleted'", id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
 		return
@@ -153,6 +173,9 @@ func (env *Env) adminCreateEvent(c *gin.Context) {
 
 func (env *Env) adminUpdateEvent(c *gin.Context) {
 	id := c.Param("id")
+	if !env.requireActiveEvent(c, id) {
+		return
+	}
 
 	var req UpdateEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -181,6 +204,9 @@ func (env *Env) adminUpdateEvent(c *gin.Context) {
 
 func (env *Env) adminAddInvitee(c *gin.Context) {
 	eventID := c.Param("id")
+	if !env.requireActiveEvent(c, eventID) {
+		return
+	}
 
 	var req AddInviteeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -240,6 +266,9 @@ func (env *Env) adminAddInvitee(c *gin.Context) {
 
 func (env *Env) adminSendMessage(c *gin.Context) {
 	eventID := c.Param("id")
+	if !env.requireActiveEvent(c, eventID) {
+		return
+	}
 
 	var req SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -332,6 +361,115 @@ func (env *Env) adminLaunchEvent(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "texts_queued": len(rows)})
+}
+
+// adminCancelEvent calls off a launched event and notifies its invitees.
+//
+// The notice body arrives in the request rather than being generated here: the
+// admin UI prefills a draft, the admin edits it, and only the approved text is
+// ever queued. Everything happens in one transaction so a failure part-way
+// cannot leave an event marked canceled with no texts queued, or texts queued
+// for an event that is still live.
+func (env *Env) adminCancelEvent(c *gin.Context) {
+	eventID := c.Param("id")
+
+	var req CancelEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	tx, err := env.db.Beginx()
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer tx.Rollback()
+
+	// Lock the row so two concurrent cancels can't both queue a notice.
+	var status string
+	if err := tx.QueryRow("SELECT status FROM events WHERE id = $1 FOR UPDATE", eventID).Scan(&status); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return
+	}
+	if status != "launched" {
+		c.JSON(http.StatusConflict, gin.H{"error": "only a launched event can be canceled"})
+		return
+	}
+
+	var messageID int
+	if err := tx.QueryRow(
+		`INSERT INTO messages (content, event_id) VALUES ($1, $2) RETURNING id`,
+		req.Content, eventID,
+	).Scan(&messageID); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Same audience as adminSendMessage — everyone who hasn't declined. The RSVP
+	// link is deliberately omitted: there is nothing left to respond to.
+	result, err := tx.Exec(
+		`INSERT INTO texts (contact_id, message_id, event_id, status, content)
+		 SELECT i.contact_id, $1, $2, 'pending', $3
+		 FROM invites i
+		 WHERE i.event_id = $2 AND i.attending != 'Declined'`,
+		messageID, eventID, req.Content,
+	)
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if _, err := tx.Exec(
+		"UPDATE events SET status = 'canceled', canceled_at = now() WHERE id = $1", eventID,
+	); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	count, _ := result.RowsAffected()
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message_id": messageID, "texts_queued": count})
+}
+
+// adminDeleteEvent soft-deletes an event. The row and all of its invites,
+// messages, and texts stay in the database so a text sent months ago can still
+// be traced back to the event and invite it belonged to; the 'deleted' status
+// is what hides it from the admin lists and the public invite endpoints.
+//
+// Only draft and canceled events can be deleted — deleting a launched event
+// would strand invitees holding a live link with no notice.
+func (env *Env) adminDeleteEvent(c *gin.Context) {
+	eventID := c.Param("id")
+
+	var status string
+	if err := env.db.QueryRow("SELECT status FROM events WHERE id = $1", eventID).Scan(&status); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return
+	}
+	if status != "draft" && status != "canceled" {
+		c.JSON(http.StatusConflict, gin.H{"error": "only draft or canceled events can be deleted"})
+		return
+	}
+
+	if _, err := env.db.Exec(
+		"UPDATE events SET status = 'deleted', deleted_at = now() WHERE id = $1", eventID,
+	); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func (env *Env) adminGetTexts(c *gin.Context) {

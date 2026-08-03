@@ -95,6 +95,8 @@ func newRouter() *gin.Engine {
 	admin.POST("/events", testEnv.adminCreateEvent)
 	admin.GET("/events/:id", testEnv.adminGetEvent)
 	admin.PUT("/events/:id", testEnv.adminUpdateEvent)
+	admin.DELETE("/events/:id", testEnv.adminDeleteEvent)
+	admin.POST("/events/:id/cancel", testEnv.adminCancelEvent)
 	admin.POST("/events/:id/invites", testEnv.adminAddInvitee)
 	admin.POST("/events/:id/messages", testEnv.adminSendMessage)
 	admin.GET("/events/:id/texts", testEnv.adminGetTexts)

@@ -429,6 +429,155 @@ describe('Notify invitees of changes', () => {
   })
 })
 
+describe('Cancel Event', () => {
+  const launchedEvent = {
+    ...defaultEvent,
+    event: { ...defaultEvent.event, status: 'launched' },
+  }
+
+  it('button is not shown for a draft event', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(screen.queryByRole('button', { name: /cancel event/i })).not.toBeInTheDocument()
+  })
+
+  it('button is shown for a launched event and opens the modal prefilled', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel event/i }))
+    expect(screen.getByRole('heading', { name: /cancel event/i })).toBeInTheDocument()
+    const textarea = screen.getByRole('textbox', { name: /cancellation message/i })
+    expect(textarea.value).toMatch(/summer party/i)
+    expect(textarea.value).toMatch(/canceled/i)
+  })
+
+  it('the admin can edit the message before confirming', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /cancel event/i }))
+
+    const textarea = screen.getByRole('textbox', { name: /cancellation message/i })
+    await userEvent.clear(textarea)
+    await userEvent.type(textarea, 'Custom cancellation text.')
+    expect(textarea.value).toBe('Custom cancellation text.')
+  })
+
+  it('confirming cancels the event and shows the Canceled badge', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /cancel event/i }))
+    await userEvent.click(screen.getByRole('button', { name: /cancel event & notify/i }))
+
+    await screen.findByText('Canceled')
+    expect(screen.queryByRole('button', { name: /cancel event/i })).not.toBeInTheDocument()
+  })
+
+  it('"Never mind" closes the modal without canceling', async () => {
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /cancel event/i }))
+    await userEvent.click(screen.getByRole('button', { name: /never mind/i }))
+
+    expect(screen.queryByRole('heading', { name: /^cancel event$/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Launched')).toBeInTheDocument()
+  })
+
+  it('shows an error banner when the cancel request fails', async () => {
+    server.use(
+      http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)),
+      http.post(`${BASE}/events/:id/cancel`, () =>
+        HttpResponse.json({ error: 'cancel failed' }, { status: 409 })
+      ),
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /cancel event/i }))
+    await userEvent.click(screen.getByRole('button', { name: /cancel event & notify/i }))
+    await screen.findByText('cancel failed')
+  })
+
+  it('freezes the event form and hides Add Invitee / Send a Message once canceled', async () => {
+    const canceledEvent = { ...defaultEvent, event: { ...defaultEvent.event, status: 'canceled' } }
+    server.use(http.get(`${BASE}/events/:id`, () => HttpResponse.json(canceledEvent)))
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    expect(screen.getByDisplayValue('Summer Party')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /add invitee/i })).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/type your message/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/this event was canceled/i)).toBeInTheDocument()
+  })
+})
+
+describe('Delete Event', () => {
+  it('button is shown for a draft event', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(screen.getByRole('button', { name: /delete event/i })).toBeInTheDocument()
+  })
+
+  it('button is not shown for a launched event', async () => {
+    server.use(
+      http.get(`${BASE}/events/:id`, () =>
+        HttpResponse.json({ ...defaultEvent, event: { ...defaultEvent.event, status: 'launched' } })
+      )
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(screen.queryByRole('button', { name: /delete event/i })).not.toBeInTheDocument()
+  })
+
+  it('button is shown for a canceled event', async () => {
+    server.use(
+      http.get(`${BASE}/events/:id`, () =>
+        HttpResponse.json({ ...defaultEvent, event: { ...defaultEvent.event, status: 'canceled' } })
+      )
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    expect(screen.getByRole('button', { name: /delete event/i })).toBeInTheDocument()
+  })
+
+  it('confirming deletes the event and navigates back to the list', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /delete event/i }))
+    const heading = screen.getByRole('heading', { name: /delete event/i })
+    const modal = within(heading.closest('.modal'))
+
+    await userEvent.click(modal.getByRole('button', { name: /delete event/i }))
+    await screen.findByText('Events List Page')
+  })
+
+  it('"Cancel" in the delete modal closes it without deleting', async () => {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /delete event/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    expect(screen.queryByRole('heading', { name: /delete event/i })).not.toBeInTheDocument()
+  })
+
+  it('shows an error banner when the delete request fails', async () => {
+    server.use(
+      http.delete(`${BASE}/events/:id`, () =>
+        HttpResponse.json({ error: 'delete failed' }, { status: 409 })
+      )
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /delete event/i }))
+    const heading = screen.getByRole('heading', { name: /delete event/i })
+    const modal = within(heading.closest('.modal'))
+    await userEvent.click(modal.getByRole('button', { name: /delete event/i }))
+    await screen.findByText('delete failed')
+  })
+})
+
 describe('AddInviteeModal', () => {
   it('opens the modal when "+ Add Invitee" is clicked', async () => {
     render(

@@ -79,6 +79,17 @@ describe('EventSummary', () => {
     await screen.findByText('Event Details Page')
   })
 
+  it('shows a Canceled badge for a canceled event', async () => {
+    server.use(
+      http.get(`${BASE}/events`, () =>
+        HttpResponse.json([{ ...defaultEvents[0], status: 'canceled' }])
+      )
+    )
+    renderSummary()
+    await screen.findByText('Summer Party')
+    expect(screen.getByText('Canceled')).toBeInTheDocument()
+  })
+
   it('clicking an event row navigates to /event/:id', async () => {
     renderSummary()
     await screen.findByText('Summer Party')

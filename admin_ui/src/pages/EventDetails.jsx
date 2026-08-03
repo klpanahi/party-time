@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText } from '../api'
+import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText, cancelEvent, deleteEvent } from '../api'
 import { toDatetimeLocal, formatDateShort } from '../dateUtils'
+
+const STATUS_LABELS = {
+  draft: 'Draft',
+  launched: 'Launched',
+  canceled: 'Canceled',
+}
+
+// Starting point for the cancellation notice. The admin edits this in the modal
+// and the edited text is what actually gets queued — nothing is sent unreviewed.
+function defaultCancellationMessage(event) {
+  return `Unfortunately, ${event.name} on ${formatDateShort(event.date)} has been canceled. `
+    + `Sorry for the inconvenience — we hope to see you at the next one!`
+}
 
 export default function EventDetails() {
   const { id } = useParams()
@@ -13,6 +26,10 @@ export default function EventDetails() {
   const [showAddInvitee, setShowAddInvitee] = useState(false)
   const [showLaunch, setShowLaunch] = useState(false)
   const [launching, setLaunching] = useState(false)
+  const [showCancel, setShowCancel] = useState(false)
+  const [canceling, setCanceling] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [messageContent, setMessageContent] = useState('')
   const [sending, setSending] = useState(false)
   const [texts, setTexts] = useState(null)
@@ -92,6 +109,33 @@ export default function EventDetails() {
     }
   }
 
+  async function handleCancel(content) {
+    setCanceling(true)
+    try {
+      await cancelEvent(id, content)
+      setDetail((prev) => ({ ...prev, event: { ...prev.event, status: 'canceled' } }))
+      setShowCancel(false)
+      if (activeTab === 'messages') {
+        getTexts(id).then(setTexts).catch((e) => setTextsError(e.message))
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setCanceling(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await deleteEvent(id)
+      navigate('/')
+    } catch (e) {
+      setError(e.message)
+      setDeleting(false)
+    }
+  }
+
   function handleNotifyChanges() {
     setMessageContent("Heads up — some event details have been updated. Check your invite link for the latest info.")
     setActiveTab('invitees')
@@ -123,6 +167,7 @@ export default function EventDetails() {
   if (!detail) return <div className="page loading">Loading…</div>
 
   const { event, invitees } = detail
+  const canceled = event.status === 'canceled'
 
   return (
     <div className="page">
@@ -131,15 +176,34 @@ export default function EventDetails() {
         <div className="header-right">
           {saved && <span className="save-indicator">Saved</span>}
           <span className={`status-badge status-${event.status}`}>
-            {event.status === 'draft' ? 'Draft' : 'Launched'}
+            {STATUS_LABELS[event.status] ?? event.status}
           </span>
           {event.status === 'draft' && (
             <button className="btn-launch" onClick={() => setShowLaunch(true)}>
               Launch Event
             </button>
           )}
+          {event.status === 'launched' && (
+            <button className="btn-danger-ghost" onClick={() => setShowCancel(true)}>
+              Cancel Event
+            </button>
+          )}
+          {/* Deleting a launched event would strand invitees holding a live
+              link, so it's offered only before launch or after cancellation. */}
+          {(event.status === 'draft' || canceled) && (
+            <button className="btn-danger-ghost" onClick={() => setShowDelete(true)}>
+              Delete Event
+            </button>
+          )}
         </div>
       </header>
+
+      {canceled && (
+        <div className="cancel-banner">
+          This event was canceled{event.canceled_at ? ` on ${formatDateShort(event.canceled_at)}` : ''}.
+          Its details and invitee list are now read-only.
+        </div>
+      )}
 
       {showLaunch && (
         <LaunchModal
@@ -147,6 +211,25 @@ export default function EventDetails() {
           launching={launching}
           onConfirm={handleLaunch}
           onClose={() => setShowLaunch(false)}
+        />
+      )}
+
+      {showCancel && (
+        <CancelModal
+          event={event}
+          inviteeCount={invitees.length}
+          canceling={canceling}
+          onConfirm={handleCancel}
+          onClose={() => setShowCancel(false)}
+        />
+      )}
+
+      {showDelete && (
+        <DeleteModal
+          event={event}
+          deleting={deleting}
+          onConfirm={handleDelete}
+          onClose={() => setShowDelete(false)}
         />
       )}
 
@@ -162,20 +245,21 @@ export default function EventDetails() {
         </div>
         <div className="form">
           <label>Name
-            <input value={event.name} onChange={(e) => updateField('name', e.target.value)} />
+            <input value={event.name} disabled={canceled} onChange={(e) => updateField('name', e.target.value)} />
           </label>
           <label>Date &amp; Time
-            <input type="datetime-local" value={event.date}
+            <input type="datetime-local" value={event.date} disabled={canceled}
               onChange={(e) => updateField('date', e.target.value)} />
           </label>
           <label>Location
-            <input value={event.location} onChange={(e) => updateField('location', e.target.value)} />
+            <input value={event.location} disabled={canceled} onChange={(e) => updateField('location', e.target.value)} />
           </label>
           <label>Description
-            <textarea value={event.description} onChange={(e) => updateField('description', e.target.value)} rows={4} />
+            <textarea value={event.description} disabled={canceled}
+              onChange={(e) => updateField('description', e.target.value)} rows={4} />
           </label>
           <label className="checkbox-label">
-            <input type="checkbox" checked={event.plus_ones_allowed}
+            <input type="checkbox" checked={event.plus_ones_allowed} disabled={canceled}
               onChange={(e) => updateField('plus_ones_allowed', e.target.checked)} />
             Plus ones allowed
           </label>
@@ -203,7 +287,9 @@ export default function EventDetails() {
           <section className="card">
             <div className="card-header-row">
               <h2 className="card-title">Invitees ({invitees.length})</h2>
-              <button className="btn-primary" onClick={() => setShowAddInvitee(true)}>+ Add Invitee</button>
+              {!canceled && (
+                <button className="btn-primary" onClick={() => setShowAddInvitee(true)}>+ Add Invitee</button>
+              )}
             </div>
 
             {showAddInvitee && (
@@ -248,22 +334,24 @@ export default function EventDetails() {
               )}
           </section>
 
-          <section className="card" ref={messageSectionRef}>
-            <h2 className="card-title">Send a Message</h2>
-            <p className="hint">Message will be sent to all invitees who haven't declined. Each message will automatically include their personal RSVP link.</p>
-            <form onSubmit={handleSendMessage} className="message-form">
-              <textarea
-                ref={messageRef}
-                value={messageContent}
-                onChange={(e) => setMessageContent(e.target.value)}
-                placeholder="Type your message…"
-                rows={4}
-              />
-              <button type="submit" className="btn-primary" disabled={sending || !messageContent.trim()}>
-                {sending ? 'Sending…' : 'Send'}
-              </button>
-            </form>
-          </section>
+          {!canceled && (
+            <section className="card" ref={messageSectionRef}>
+              <h2 className="card-title">Send a Message</h2>
+              <p className="hint">Message will be sent to all invitees who haven't declined. Each message will automatically include their personal RSVP link.</p>
+              <form onSubmit={handleSendMessage} className="message-form">
+                <textarea
+                  ref={messageRef}
+                  value={messageContent}
+                  onChange={(e) => setMessageContent(e.target.value)}
+                  placeholder="Type your message…"
+                  rows={4}
+                />
+                <button type="submit" className="btn-primary" disabled={sending || !messageContent.trim()}>
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+              </form>
+            </section>
+          )}
         </>
       )}
 
@@ -404,6 +492,64 @@ function LaunchModal({ inviteeCount, launching, onConfirm, onClose }) {
             disabled={launching || inviteeCount === 0}
           >
             {launching ? 'Launching…' : 'Send Invites'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CancelModal({ event, inviteeCount, canceling, onConfirm, onClose }) {
+  const [content, setContent] = useState(() => defaultCancellationMessage(event))
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+        <h2>Cancel Event</h2>
+        <p>
+          This will mark <strong>{event.name}</strong> as canceled and queue the message below
+          to <strong>{inviteeCount} {inviteeCount === 1 ? 'invitee' : 'invitees'}</strong> who
+          haven't declined. Review and edit it before sending — this cannot be undone.
+        </p>
+        <div className="form">
+          <label>Cancellation message
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={5}
+              autoFocus
+            />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button className="btn-ghost" onClick={onClose} disabled={canceling}>Never mind</button>
+          <button
+            className="btn-danger"
+            onClick={() => onConfirm(content)}
+            disabled={canceling || !content.trim()}
+          >
+            {canceling ? 'Canceling…' : 'Cancel Event & Notify'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeleteModal({ event, deleting, onConfirm, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Delete Event</h2>
+        <p>
+          Delete <strong>{event.name}</strong>? It will be removed from the event list, but its
+          record — including any messages already sent — is kept for reference and isn't
+          permanently erased.
+        </p>
+        <div className="form-actions">
+          <button className="btn-ghost" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button className="btn-danger" onClick={onConfirm} disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete Event'}
           </button>
         </div>
       </div>

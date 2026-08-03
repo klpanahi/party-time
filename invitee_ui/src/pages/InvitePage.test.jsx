@@ -133,6 +133,33 @@ describe('InvitePage', () => {
     expect(screen.queryByText(/will you be there/i)).not.toBeInTheDocument()
   })
 
+  it('shows the canceled notice and hides RSVP controls for a canceled event', async () => {
+    server.use(
+      http.get(`${BASE}/invite/:id`, () =>
+        HttpResponse.json({ ...defaultInvite, event_status: 'canceled' })
+      )
+    )
+    renderInvite()
+    await screen.findByText(/this event has been canceled/i)
+    expect(screen.queryByText(/will you be there/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /attending/i })).not.toBeInTheDocument()
+  })
+
+  it('takes priority over the past-event notice when both apply', async () => {
+    server.use(
+      http.get(`${BASE}/invite/:id`, () =>
+        HttpResponse.json({
+          ...defaultInvite,
+          event_status: 'canceled',
+          event_date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        })
+      )
+    )
+    renderInvite()
+    await screen.findByText(/this event has been canceled/i)
+    expect(screen.queryByText(/already taken place/i)).not.toBeInTheDocument()
+  })
+
   it('renders the co-invitees list when present', async () => {
     server.use(
       http.get(`${BASE}/invite/:id`, () =>

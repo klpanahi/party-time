@@ -86,6 +86,11 @@ export const handlers = [
 
   http.post(`${BASE}/events/:id/launch`, () => HttpResponse.json({ ok: true })),
 
+  http.post(`${BASE}/events/:id/cancel`, () =>
+    HttpResponse.json({ ok: true, message_id: 'msg-1', texts_queued: 1 })),
+
+  http.delete(`${BASE}/events/:id`, () => HttpResponse.json({ ok: true })),
+
   http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(defaultTexts)),
 
   http.post(`${BASE}/texts/:id/resend`, () => HttpResponse.json({ ok: true })),
