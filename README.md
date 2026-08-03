@@ -29,6 +29,26 @@ full test suite (backend + both UIs) against a throwaway test Postgres, and `./e
 smoke-tests the built UIs through a real nginx edge running the production vhost configs
 (`deploy/nginx/public.conf` / `admin.conf`) — see `AGENT.md` for details.
 
+### Sending texts via iMessage instead of Twilio
+
+Queued texts (`party_time.texts`, status `pending`) are normally drained by the backend's
+own worker through Twilio, but that requires `TWILIO_*` credentials. `./imessage_sender.sh`
+is a Mac-only companion script that drains the same queue by sending through Messages.app
+instead — useful for local/free testing. It claims pending rows over HTTP
+(`GET /admin/texts/pending`, same atomic claim the Twilio worker uses) and reports each
+outcome back (`POST /admin/texts/:id/status`) so nothing is double-sent or left stuck.
+
+```
+./imessage_sender.sh           # dry run — show what's pending, sends nothing
+./imessage_sender.sh --send    # claim and actually deliver via iMessage
+./imessage_sender.sh --send --loop   # keep polling and sending
+```
+
+Do not run this alongside a backend that has `TWILIO_*` configured — the Twilio worker and
+this script would race for the same queue. The first run may need you to grant your
+terminal app Automation access to Messages.app (System Settings → Privacy & Security →
+Automation).
+
 This app will consist of 3 code bases
 
 - An invite portal (party_invite)

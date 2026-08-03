@@ -213,3 +213,150 @@ func TestResendText(t *testing.T) {
 		assertStatus(t, w, 409)
 	})
 }
+
+// TestClaimPendingTexts covers the /admin/texts/pending endpoint used by
+// external senders (the iMessage companion script) to pull work from the same
+// queue the Twilio worker drains.
+func TestClaimPendingTexts(t *testing.T) {
+	t.Run("claims up to limit and flips status to sending", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Gia", "Ruiz", "+15555550200")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		id1 := seedText(t, contactID, eventID, "first")
+		id2 := seedText(t, contactID, eventID, "second")
+		seedText(t, contactID, eventID, "third")
+
+		w := do(t, r, "GET", "/admin/texts/pending?limit=2", nil)
+		assertStatus(t, w, 200)
+
+		var got []PendingText
+		mustDecode(t, w, &got)
+		if len(got) != 2 {
+			t.Fatalf("got %d texts, want 2", len(got))
+		}
+		for _, pt := range got {
+			if pt.PhoneNumber != "+15555550200" {
+				t.Errorf("phone_number = %q, want +15555550200", pt.PhoneNumber)
+			}
+		}
+
+		if getText(t, id1).Status != "sending" {
+			t.Error("claimed text 1 should be sending")
+		}
+		if getText(t, id2).Status != "sending" {
+			t.Error("claimed text 2 should be sending")
+		}
+	})
+
+	t.Run("peek does not mutate rows", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Hana", "Vu", "+15555550201")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "peek me")
+
+		w := do(t, r, "GET", "/admin/texts/pending?peek=true", nil)
+		assertStatus(t, w, 200)
+
+		var got []PendingText
+		mustDecode(t, w, &got)
+		if len(got) != 1 {
+			t.Fatalf("got %d texts, want 1", len(got))
+		}
+		if getText(t, textID).Status != "pending" {
+			t.Error("peek must not change status")
+		}
+	})
+
+	t.Run("empty queue returns empty array, not an error", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+
+		w := do(t, r, "GET", "/admin/texts/pending", nil)
+		assertStatus(t, w, 200)
+
+		var got []PendingText
+		mustDecode(t, w, &got)
+		if got == nil || len(got) != 0 {
+			t.Errorf("got %v, want empty slice", got)
+		}
+	})
+}
+
+// TestReportTextStatus covers /admin/texts/:id/status, the counterpart an
+// external sender calls after it has attempted delivery on a claimed row.
+func TestReportTextStatus(t *testing.T) {
+	t.Run("marks a claimed text sent", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Ira", "Voss", "+15555550202")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "hi")
+		if _, err := testDB.Exec(`UPDATE texts SET status = 'sending' WHERE id = $1`, textID); err != nil {
+			t.Fatalf("seed sending: %v", err)
+		}
+
+		w := do(t, r, "POST", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "sent", "provider_sid": "imessage"})
+		assertStatus(t, w, 200)
+
+		row := getText(t, textID)
+		if row.Status != "sent" {
+			t.Errorf("status = %q, want sent", row.Status)
+		}
+		if row.ProviderSid == nil || *row.ProviderSid != "imessage" {
+			t.Errorf("provider_sid = %v, want imessage", row.ProviderSid)
+		}
+	})
+
+	t.Run("marks a claimed text failed with the reported error", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Jo", "Weir", "+15555550203")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "hi")
+		if _, err := testDB.Exec(`UPDATE texts SET status = 'sending' WHERE id = $1`, textID); err != nil {
+			t.Fatalf("seed sending: %v", err)
+		}
+
+		w := do(t, r, "POST", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "failed", "error": "osascript timed out"})
+		assertStatus(t, w, 200)
+
+		row := getText(t, textID)
+		if row.Status != "failed" {
+			t.Errorf("status = %q, want failed", row.Status)
+		}
+		if row.Error == nil || *row.Error != "osascript timed out" {
+			t.Errorf("error = %v, want \"osascript timed out\"", row.Error)
+		}
+	})
+
+	t.Run("rejects reporting on a text not in sending", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Kai", "Nash", "+15555550204")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "still pending")
+
+		w := do(t, r, "POST", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "sent"})
+		assertStatus(t, w, 409)
+	})
+
+	t.Run("rejects an invalid status value", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Lena", "Ott", "+15555550205")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "hi")
+		if _, err := testDB.Exec(`UPDATE texts SET status = 'sending' WHERE id = $1`, textID); err != nil {
+			t.Fatalf("seed sending: %v", err)
+		}
+
+		w := do(t, r, "POST", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "bogus"})
+		assertStatus(t, w, 400)
+	})
+}

@@ -136,6 +136,27 @@ type TextWithContact struct {
 	PhoneNumber string     `db:"phone_number" json:"phone_number"`
 }
 
+// PendingText is a queued text handed to an external sender (the iMessage
+// companion script). It carries everything needed to deliver the message
+// without a second round trip: the body, the recipient's phone, and their name
+// for display in the sender's log.
+type PendingText struct {
+	ID          int    `db:"id"           json:"id"`
+	Content     string `db:"content"      json:"content"`
+	PhoneNumber string `db:"phone_number" json:"phone_number"`
+	FirstName   string `db:"first_name"   json:"first_name"`
+	LastName    string `db:"last_name"    json:"last_name"`
+}
+
+// TextStatusRequest is an external sender reporting the outcome of a text it
+// claimed. Status must be "sent" or "failed"; the other fields are optional
+// context recorded on the row.
+type TextStatusRequest struct {
+	Status      string `json:"status" binding:"required"`
+	Error       string `json:"error"`
+	ProviderSid string `json:"provider_sid"`
+}
+
 type IdRequest struct {
 	ID string `json:"id"`
 }

@@ -99,6 +99,8 @@ func main() {
 		admin.GET("/events/:id/texts", env.adminGetTexts)
 		admin.POST("/events/:id/launch", env.adminLaunchEvent)
 		admin.POST("/texts/:id/resend", env.adminResendText)
+		admin.GET("/texts/pending", env.adminClaimPendingTexts)
+		admin.POST("/texts/:id/status", env.adminReportTextStatus)
 	}
 
 	router.Run(":8080")

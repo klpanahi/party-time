@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -376,6 +377,141 @@ func (env *Env) adminResendText(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// defaultClaimLimit and maxClaimLimit bound how many texts an external sender
+// (e.g. the iMessage companion script) can pull per request.
+const (
+	defaultClaimLimit = 25
+	maxClaimLimit     = 100
+)
+
+// adminClaimPendingTexts hands a batch of pending texts to an external sender
+// running outside this process (currently: a Mac-side script that delivers via
+// iMessage instead of Twilio). It reuses the same atomic claim used by the
+// background text worker (see processPendingTexts in worker.go) so the two
+// senders can never grab the same row: FOR UPDATE SKIP LOCKED flips claimed
+// rows from 'pending' to 'sending', and the caller is responsible for
+// reporting the outcome back via adminReportTextStatus. Rows left in
+// 'sending' by a caller that crashes or never reports are recovered the same
+// way as a crashed worker process: adminResendText requeues them, and the
+// worker's own startup sweep marks stranded 'sending' rows as failed.
+//
+// ?peek=true skips the UPDATE and only selects, so a caller can preview the
+// queue without claiming anything (used for dry runs).
+func (env *Env) adminClaimPendingTexts(c *gin.Context) {
+	limit := defaultClaimLimit
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "limit must be a positive integer"})
+			return
+		}
+		limit = n
+	}
+	if limit > maxClaimLimit {
+		limit = maxClaimLimit
+	}
+
+	texts := []PendingText{}
+	if c.Query("peek") == "true" {
+		sql := `
+			SELECT t.id, COALESCE(t.content, m.content, '') AS content,
+				c.phone_number, c.first_name, c.last_name
+			FROM texts t
+			JOIN contacts c ON c.id = t.contact_id
+			LEFT JOIN messages m ON m.id = t.message_id
+			WHERE t.status = 'pending'
+			ORDER BY t.created_at
+			LIMIT $1`
+		if err := env.db.Select(&texts, sql, limit); err != nil {
+			fmt.Println(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, texts)
+		return
+	}
+
+	claimSQL := `
+		WITH claimed AS (
+			SELECT id, contact_id, message_id FROM texts
+			WHERE status = 'pending'
+			ORDER BY created_at
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE texts t
+		SET status = 'sending'
+		FROM claimed cl
+		JOIN contacts c ON c.id = cl.contact_id
+		LEFT JOIN messages m ON m.id = cl.message_id
+		WHERE t.id = cl.id
+		RETURNING t.id, COALESCE(t.content, m.content, '') AS content,
+			c.phone_number, c.first_name, c.last_name`
+	if err := env.db.Select(&texts, claimSQL, limit); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, texts)
+}
+
+// adminReportTextStatus records the outcome of a text claimed via
+// adminClaimPendingTexts. Only rows currently in 'sending' can be reported on
+// (mirrors adminResendText's guard against acting on the wrong state).
+func (env *Env) adminReportTextStatus(c *gin.Context) {
+	id := c.Param("id")
+
+	var req TextStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var result interface {
+		RowsAffected() (int64, error)
+	}
+	var err error
+
+	switch req.Status {
+	case "sent":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'sent', sent_at = now(), provider_sid = $2, error = NULL
+			 WHERE id = $1 AND status = 'sending'`,
+			id, nullIfEmpty(req.ProviderSid),
+		)
+	case "failed":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'failed', error = $2
+			 WHERE id = $1 AND status = 'sending'`,
+			id, nullIfEmpty(req.Error),
+		)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be 'sent' or 'failed'"})
+		return
+	}
+
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if n, _ := result.RowsAffected(); n == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "text not found or not in a sending state"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// nullIfEmpty lets an empty string bind as SQL NULL instead of "".
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func buildInviteMessage(firstName, eventName, formattedDate, location, description, inviteURL string) string {
