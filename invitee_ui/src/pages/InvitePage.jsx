@@ -177,7 +177,7 @@ export default function InvitePage() {
                 </span>
               )}
               {status === 'saved' && (
-                <span key="saved" className="status-saved">Saved ✓</span>
+                <span key="saved" className="status-saved">Response Sent! ✓</span>
               )}
               {status === 'error'  && <span className="status-error">Couldn't save, try again</span>}
             </div>
