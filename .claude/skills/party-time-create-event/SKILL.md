@@ -1,6 +1,6 @@
 ---
 name: party-time-create-event
-description: Creates an event in the Party Time admin UI at http://nginx-internal.local/ by driving Chrome through the chrome-devtools MCP tools, including the datetime-local field that fill and type_text silently fail to set. Use when the user asks to create, add, schedule, or seed an event in Party Time; wants a test event made; asks to verify or smoke-test the party-time admin deployment end to end; or mentions nginx-internal.local, the party-time admin app, or the admin events page.
+description: Creates an event in the Party Time admin UI at http://party-time.nginx-internal.local/ by driving Chrome through the chrome-devtools MCP tools, including the datetime-local field that fill and type_text silently fail to set. Use when the user asks to create, add, schedule, or seed an event in Party Time; wants a test event made; asks to verify or smoke-test the party-time admin deployment end to end; or mentions party-time.nginx-internal.local, the party-time admin app, or the admin events page.
 ---
 
 # Create a Party Time event
@@ -12,14 +12,16 @@ writes to Postgres.
 ## Prerequisites
 
 - The `chrome-devtools` MCP tools are available (`mcp__plugin_ecc_chrome-devtools__*`).
-- `http://nginx-internal.local/` resolves — it is LAN-only, no Cloudflare tunnel.
-  If it does not resolve, the caller is off the LAN/VPN; say so and stop.
+- `http://party-time.nginx-internal.local/` resolves — it is LAN-only, no Cloudflare
+  tunnel. If it does not resolve, the caller is off the LAN/VPN; say so and stop.
+  (If plain `nginx-internal.local` resolves but this three-label name doesn't, the
+  VM's `party-time-mdns-alias` systemd unit has died — see `ops/AGENT.md` hazard 6e.)
 
 ## Workflow
 
 1. **Open the page**
 
-   `new_page` with `url: http://nginx-internal.local/`. Title should be
+   `new_page` with `url: http://party-time.nginx-internal.local/`. Title should be
    "Party Time — Admin". If you already have a tab, `navigate_page` instead.
 
 2. **Open the modal**
