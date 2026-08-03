@@ -339,6 +339,18 @@ body {
   text-align: center;
 }
 
+/* Canceled event notice */
+.canceled-notice {
+  margin: 4px 28px 24px;
+  padding: 14px 16px;
+  background: #fef2f2;
+  border-radius: 10px;
+  color: #991b1b;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 /* Loading / error states */
 .loading-pulse {
   margin-top: 80px;

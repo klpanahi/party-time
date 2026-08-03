@@ -98,6 +98,7 @@ export default function InvitePage() {
   }
 
   const isPast = new Date(invite.event_date) < new Date()
+  const isCanceled = invite.event_status === 'canceled'
   const declined = rsvp === 'Declined'
 
   return (
@@ -121,7 +122,11 @@ export default function InvitePage() {
 
         <hr className="divider" />
 
-        {isPast ? (
+        {isCanceled ? (
+          <div className="canceled-notice">
+            This event has been canceled. No RSVP is needed.
+          </div>
+        ) : isPast ? (
           <div className="past-notice">
             This event has already taken place. Your RSVP can no longer be modified.
           </div>

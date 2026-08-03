@@ -11,6 +11,7 @@ export const defaultInvite = {
   event_location: '123 Party Lane',
   event_description: 'Come celebrate!',
   plus_ones_allowed: true,
+  event_status: 'launched',
   rsvp_status: 'No Response',
   additional_guests: 0,
   co_invitees: [],

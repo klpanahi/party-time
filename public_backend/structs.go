@@ -18,6 +18,10 @@ type Event struct {
 	Location          string    `db:"location"         json:"location"`
 	Plus_Ones_Allowed bool      `db:"plus_ones_allowed" json:"plus_ones_allowed"`
 	Status            string    `db:"status"           json:"status"`
+	// Mapped because several handlers load events with SELECT * — sqlx errors
+	// on a column with no destination field.
+	CanceledAt *time.Time `db:"canceled_at" json:"canceled_at"`
+	DeletedAt  *time.Time `db:"deleted_at"  json:"deleted_at"`
 }
 
 type Contact struct {
@@ -85,6 +89,13 @@ type SendMessageRequest struct {
 	Content string `json:"content" binding:"required"`
 }
 
+// CancelEventRequest carries the cancellation notice the admin reviewed and
+// edited in the UI. It is required rather than server-generated so nothing is
+// ever queued to invitees that the admin has not seen.
+type CancelEventRequest struct {
+	Content string `json:"content" binding:"required"`
+}
+
 type InvitePageData struct {
 	InviteID         string `db:"id"                json:"invite_id"`
 	RSVPStatus       string `db:"attending"         json:"rsvp_status"`
@@ -98,6 +109,7 @@ type InvitePageData struct {
 	EventDescription string `db:"event_description" json:"event_description"`
 	EventLocation    string `db:"event_location"    json:"event_location"`
 	PlusOnesAllowed  bool   `db:"plus_ones_allowed" json:"plus_ones_allowed"`
+	EventStatus      string `db:"event_status"      json:"event_status"`
 }
 
 type CoInvitee struct {

@@ -793,3 +793,282 @@ func TestUpdateInvite(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Cancel event
+// ---------------------------------------------------------------------------
+
+func TestCancelEvent(t *testing.T) {
+	cleanDB(t)
+	r := newRouter()
+
+	t.Run("cancels the event and queues the supplied notice", func(t *testing.T) {
+		c1 := seedContact(t, "Tara", "Vail", "5556660001")
+		c2 := seedContact(t, "Umar", "Diaz", "5556660002")
+		eventID := seedEvent(t, "Doomed Gala", futureDate(), "launched")
+		seedInvite(t, eventID, c1)
+		seedInvite(t, eventID, c2)
+
+		notice := "Sorry — the Doomed Gala is off. We'll reschedule soon."
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": notice})
+		assertStatus(t, w, 200)
+
+		var resp map[string]any
+		mustDecode(t, w, &resp)
+		if resp["texts_queued"] != float64(2) {
+			t.Errorf("texts_queued = %v, want 2", resp["texts_queued"])
+		}
+
+		var status string
+		var canceledAt *time.Time
+		testDB.QueryRow(`SELECT status, canceled_at FROM events WHERE id = $1`, eventID).
+			Scan(&status, &canceledAt)
+		if status != "canceled" {
+			t.Errorf("status = %q, want canceled", status)
+		}
+		if canceledAt == nil {
+			t.Error("canceled_at is NULL, want a timestamp")
+		}
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 2 {
+			t.Fatalf("want 2 texts, got %d", len(texts))
+		}
+		for _, tx := range texts {
+			if tx.Status != "pending" {
+				t.Errorf("text %d status = %q, want pending", tx.ID, tx.Status)
+			}
+			// The admin's edited wording is what goes out — verbatim, with no
+			// RSVP link appended.
+			if tx.Content != notice {
+				t.Errorf("text content = %q, want %q", tx.Content, notice)
+			}
+		}
+	})
+
+	t.Run("skips invitees who already declined", func(t *testing.T) {
+		c1 := seedContact(t, "Vera", "Nash", "5556660003")
+		c2 := seedContact(t, "Wes", "Ford", "5556660004")
+		eventID := seedEvent(t, "Partly Declined", futureDate(), "launched")
+		seedInvite(t, eventID, c1)
+		declined := seedInvite(t, eventID, c2)
+		testDB.Exec(`UPDATE invites SET attending = 'Declined' WHERE id = $1`, declined)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "Called off."})
+		assertStatus(t, w, 200)
+
+		var resp map[string]any
+		mustDecode(t, w, &resp)
+		if resp["texts_queued"] != float64(1) {
+			t.Errorf("texts_queued = %v, want 1", resp["texts_queued"])
+		}
+	})
+
+	t.Run("rejects an empty notice", func(t *testing.T) {
+		eventID := seedEvent(t, "No Body", futureDate(), "launched")
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": ""})
+		assertStatus(t, w, 400)
+
+		// Nothing should have changed.
+		var status string
+		testDB.QueryRow(`SELECT status FROM events WHERE id = $1`, eventID).Scan(&status)
+		if status != "launched" {
+			t.Errorf("status = %q after rejected cancel, want launched", status)
+		}
+	})
+
+	t.Run("cancelling a draft event returns 409", func(t *testing.T) {
+		eventID := seedEvent(t, "Still A Draft", futureDate(), "draft")
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "nope"})
+		assertStatus(t, w, 409)
+	})
+
+	t.Run("cancelling twice returns 409", func(t *testing.T) {
+		eventID := seedEvent(t, "Double Cancel", futureDate(), "launched")
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "off"})
+		assertStatus(t, w, 200)
+		w = do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "off again"})
+		assertStatus(t, w, 409)
+	})
+
+	t.Run("cancelling a nonexistent event returns 404", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events/99999/cancel", map[string]any{"content": "x"})
+		assertStatus(t, w, 404)
+	})
+
+	t.Run("a canceled event is frozen against further edits", func(t *testing.T) {
+		contactID := seedContact(t, "Xena", "Ruiz", "5556660005")
+		eventID := seedEvent(t, "Frozen", futureDate(), "launched")
+		seedInvite(t, eventID, contactID)
+		do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "off"})
+
+		w := do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
+			"name": "Renamed", "date": "2030-01-01T18:00", "description": "d",
+			"location": "l", "plus_ones_allowed": true,
+		})
+		assertStatus(t, w, 409)
+
+		w = do(t, r, "POST", fmt.Sprintf("/admin/events/%d/invites", eventID),
+			map[string]any{"first_name": "Late", "phone_number": "5556660099"})
+		assertStatus(t, w, 409)
+
+		w = do(t, r, "POST", fmt.Sprintf("/admin/events/%d/messages", eventID),
+			map[string]any{"content": "still here?"})
+		assertStatus(t, w, 409)
+	})
+
+	t.Run("invitees can no longer RSVP to a canceled event", func(t *testing.T) {
+		contactID := seedContact(t, "Yuri", "Blake", "5556660006")
+		eventID := seedEvent(t, "RSVP Closed", futureDate(), "launched")
+		inviteID := seedInvite(t, eventID, contactID)
+		do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "off"})
+
+		w := do(t, r, "PUT", "/invite/"+inviteID, map[string]any{
+			"rsvp_status": "Accepted", "additional_guests": 0,
+		})
+		assertStatus(t, w, 409)
+
+		// The invite page still loads, so the invitee can see it was canceled.
+		w = do(t, r, "GET", "/invite/"+inviteID, nil)
+		assertStatus(t, w, 200)
+		var page InvitePageResponse
+		mustDecode(t, w, &page)
+		if page.EventStatus != "canceled" {
+			t.Errorf("event_status = %q, want canceled", page.EventStatus)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Delete event (soft delete)
+// ---------------------------------------------------------------------------
+
+func TestDeleteEvent(t *testing.T) {
+	cleanDB(t)
+	r := newRouter()
+
+	t.Run("deletes a draft event and hides it from the admin UI", func(t *testing.T) {
+		eventID := seedEvent(t, "Scrapped Draft", futureDate(), "draft")
+
+		w := do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		assertStatus(t, w, 200)
+
+		var status string
+		var deletedAt *time.Time
+		testDB.QueryRow(`SELECT status, deleted_at FROM events WHERE id = $1`, eventID).
+			Scan(&status, &deletedAt)
+		if status != "deleted" {
+			t.Errorf("status = %q, want deleted", status)
+		}
+		if deletedAt == nil {
+			t.Error("deleted_at is NULL, want a timestamp")
+		}
+
+		// Gone from the list...
+		w = do(t, r, "GET", "/admin/events", nil)
+		var events []EventSummary
+		mustDecode(t, w, &events)
+		for _, e := range events {
+			if e.ID == eventID {
+				t.Errorf("deleted event %d still listed", eventID)
+			}
+		}
+
+		// ...and from a direct URL.
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		assertStatus(t, w, 404)
+	})
+
+	t.Run("deletes a canceled event", func(t *testing.T) {
+		contactID := seedContact(t, "Zane", "Ott", "5557770001")
+		eventID := seedEvent(t, "Canceled Then Deleted", futureDate(), "launched")
+		seedInvite(t, eventID, contactID)
+		do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "off"})
+
+		w := do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		assertStatus(t, w, 200)
+	})
+
+	t.Run("the audit trail survives deletion", func(t *testing.T) {
+		contactID := seedContact(t, "Ada", "Pike", "5557770002")
+		eventID := seedEvent(t, "Traceable", futureDate(), "launched")
+		inviteID := seedInvite(t, eventID, contactID)
+		do(t, r, "POST", fmt.Sprintf("/admin/events/%d/messages", eventID),
+			map[string]any{"content": "See you soon!"})
+		do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "Actually, it's off."})
+		do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+
+		// This is the whole point of the soft delete: the texts, the messages,
+		// the event row, and the invite each text was addressed to all remain
+		// joinable after the event is gone from the UI.
+		var texts, messages, invites int
+		testDB.QueryRow(`SELECT count(*) FROM texts WHERE event_id = $1`, eventID).Scan(&texts)
+		testDB.QueryRow(`SELECT count(*) FROM messages WHERE event_id = $1`, eventID).Scan(&messages)
+		testDB.QueryRow(`SELECT count(*) FROM invites WHERE event_id = $1`, eventID).Scan(&invites)
+		if texts != 2 {
+			t.Errorf("texts = %d, want 2 (one message + one cancellation)", texts)
+		}
+		if messages != 2 {
+			t.Errorf("messages = %d, want 2", messages)
+		}
+		if invites != 1 {
+			t.Errorf("invites = %d, want 1 — invites are kept so texts stay traceable", invites)
+		}
+
+		var stillThere string
+		if err := testDB.QueryRow(
+			`SELECT id FROM invites WHERE id = $1`, inviteID,
+		).Scan(&stillThere); err != nil {
+			t.Errorf("invite row was removed: %v", err)
+		}
+	})
+
+	t.Run("deleting a launched event returns 409", func(t *testing.T) {
+		eventID := seedEvent(t, "Live Event", futureDate(), "launched")
+		w := do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		assertStatus(t, w, 409)
+	})
+
+	t.Run("deleting twice returns 409", func(t *testing.T) {
+		eventID := seedEvent(t, "Twice Deleted", futureDate(), "draft")
+		w := do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		assertStatus(t, w, 200)
+		w = do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		assertStatus(t, w, 409)
+	})
+
+	t.Run("deleting a nonexistent event returns 404", func(t *testing.T) {
+		w := do(t, r, "DELETE", "/admin/events/99999", nil)
+		assertStatus(t, w, 404)
+	})
+
+	t.Run("invite links for a deleted event stop working", func(t *testing.T) {
+		contactID := seedContact(t, "Boris", "Kay", "5557770003")
+		eventID := seedEvent(t, "Dead Links", futureDate(), "draft")
+		inviteID := seedInvite(t, eventID, contactID)
+		do(t, r, "DELETE", fmt.Sprintf("/admin/events/%d", eventID), nil)
+
+		w := do(t, r, "GET", "/invite/"+inviteID, nil)
+		assertStatus(t, w, 404)
+
+		w = do(t, r, "GET", fmt.Sprintf("/event/%d", eventID), nil)
+		assertStatus(t, w, 404)
+
+		w = do(t, r, "PUT", "/invite/"+inviteID, map[string]any{
+			"rsvp_status": "Accepted", "additional_guests": 0,
+		})
+		assertStatus(t, w, 409)
+	})
+}

@@ -105,6 +105,7 @@ function EventTable({ events, onRowClick }) {
       <thead>
         <tr>
           <th>Event</th>
+          <th>Status</th>
           <th>Date</th>
           <th>Total</th>
           <th>Accepted</th>
@@ -117,6 +118,11 @@ function EventTable({ events, onRowClick }) {
         {events.map((e) => (
           <tr key={e.id} className="clickable-row" onClick={() => onRowClick(e.id)}>
             <td className="event-name">{e.name}</td>
+            <td>
+              {e.status === 'canceled'
+                ? <span className="status-badge status-canceled">Canceled</span>
+                : <span className="text-muted">{e.status === 'launched' ? 'Launched' : 'Draft'}</span>}
+            </td>
             <td>{formatDateShort(e.date)}</td>
             <td>{e.total_invites}</td>
             <td><span className="badge badge-accepted">{e.accepted}</span></td>

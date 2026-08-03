@@ -94,6 +94,8 @@ func main() {
 		admin.POST("/events", env.adminCreateEvent)
 		admin.GET("/events/:id", env.adminGetEvent)
 		admin.PUT("/events/:id", env.adminUpdateEvent)
+		admin.DELETE("/events/:id", env.adminDeleteEvent)
+		admin.POST("/events/:id/cancel", env.adminCancelEvent)
 		admin.POST("/events/:id/invites", env.adminAddInvitee)
 		admin.POST("/events/:id/messages", env.adminSendMessage)
 		admin.GET("/events/:id/texts", env.adminGetTexts)
@@ -133,11 +135,12 @@ func (env *Env) getInviteByID(c *gin.Context) {
 			e.date        AS event_date,
 			e.description AS event_description,
 			e.location    AS event_location,
-			e.plus_ones_allowed
+			e.plus_ones_allowed,
+			e.status      AS event_status
 		FROM invites i
 		JOIN contacts c ON c.id = i.contact_id
 		JOIN events   e ON e.id = i.event_id
-		WHERE i.id = $1`
+		WHERE i.id = $1 AND e.status != 'deleted'`
 	if err := env.db.Get(&data, sql, id); err != nil {
 		fmt.Println(err)
 		c.JSON(404, gin.H{"error": "invite not found"})
@@ -185,6 +188,21 @@ func (env *Env) updateInvite(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+
+	// There is nothing to RSVP to once the event is called off. The invitee UI
+	// hides the buttons, but a stale tab could still submit.
+	var eventStatus string
+	if err := env.db.QueryRow(
+		"SELECT e.status FROM invites i JOIN events e ON e.id = i.event_id WHERE i.id = $1", id,
+	).Scan(&eventStatus); err != nil {
+		c.JSON(404, gin.H{"error": "invite not found"})
+		return
+	}
+	if eventStatus == "canceled" || eventStatus == "deleted" {
+		c.JSON(409, gin.H{"error": "this event has been canceled"})
+		return
+	}
+
 	_, err := env.db.Exec(
 		"UPDATE invites SET attending=$1, additional_guests=$2 WHERE id=$3",
 		req.RSVPStatus, req.AdditionalGuests, id,
@@ -200,9 +218,11 @@ func (env *Env) updateInvite(c *gin.Context) {
 func (env *Env) getEventByID(c *gin.Context) {
 	id := c.Param("id")
 	event := Event{}
-	err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1", id)
+	err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1 AND status != 'deleted'", id)
 	if err != nil {
 		fmt.Println(err)
+		c.JSON(404, gin.H{"error": "event not found"})
+		return
 	}
 	c.IndentedJSON(200, event)
 }
