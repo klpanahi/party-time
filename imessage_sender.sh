@@ -10,6 +10,13 @@
 # Messages.app, then reports the outcome back via POST /admin/texts/:id/status
 # so the row lands on sent/failed instead of getting stuck or resent.
 #
+# Recipients who can't receive iMessage (e.g. Android) are automatically
+# retried over SMS, the same fallback Messages.app's own "Send as Text
+# Message" button uses. That requires Text Message Forwarding to be enabled
+# from a paired iPhone (iPhone: Settings > Messages > Text Message
+# Forwarding) — without it there's no SMS service on this Mac and those
+# texts are simply reported failed for manual resend.
+#
 # IMPORTANT: do not run this against a backend that also has TWILIO_* env vars
 # set and the Twilio worker running — the two drains would race for the same
 # rows. Leave TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER unset in
@@ -31,7 +38,9 @@ Usage: ./imessage_sender.sh [options]
 
 Drains party-time's pending texts queue and sends each one via iMessage
 (Messages.app on this Mac), using the recipient's phone_number from the
-contacts table.
+contacts table. Recipients who can't receive iMessage (e.g. Android) are
+retried automatically over SMS if this Mac has Text Message Forwarding
+enabled from a paired iPhone.
 
 Options:
   --send             Actually claim and send. Without this flag the script
@@ -167,6 +176,14 @@ normalize_phone() {
   esac
 }
 
+# send_via_imessage tries iMessage first; if that fails (e.g. the recipient
+# is on Android and can't receive iMessage) it falls back to the Mac's SMS
+# service, the same way Messages.app's own "Send as Text Message" button
+# does. That SMS service only exists when this Mac has Text Message
+# Forwarding turned on from a paired iPhone (iPhone: Settings > Messages >
+# Text Message Forwarding); without it there's no fallback and iMessage's
+# failure is the final result. On success prints "imessage" or "sms" to
+# stdout so the caller can record which channel was actually used.
 send_via_imessage() {
   local phone="$1" body="$2"
   # The leading "-" tells osascript to read the script from stdin; without it,
@@ -177,9 +194,24 @@ on run argv
   set thePhone to item 1 of argv
   set theBody to item 2 of argv
   tell application "Messages"
-    set targetService to 1st service whose service type = iMessage
-    set targetBuddy to participant thePhone of targetService
-    send theBody to targetBuddy
+    try
+      set targetService to 1st service whose service type = iMessage
+      set targetBuddy to participant thePhone of targetService
+      send theBody to targetBuddy
+      return "imessage"
+    on error iMessageErr
+      try
+        set smsService to 1st service whose service type = SMS
+        set targetBuddy to participant thePhone of smsService
+        send theBody to targetBuddy
+        return "sms"
+      on error
+        -- No SMS fallback available (Text Message Forwarding not enabled) —
+        -- surface the original iMessage error, since that's the one that
+        -- actually explains the failure to a user checking logs.
+        error iMessageErr
+      end try
+    end try
   end tell
 end run
 APPLESCRIPT
@@ -228,14 +260,18 @@ drain_once() {
     normalized="$(normalize_phone "$phone")"
 
     echo "  -> #$id to $first $last ($normalized)"
-    local err=""
-    if err="$(send_via_imessage "$normalized" "$content" 2>&1 >/dev/null)"; then
-      report_status "$id" "sent" "" "imessage"
-      echo "     sent"
+    local err_file via
+    err_file="$(mktemp)"
+    if via="$(send_via_imessage "$normalized" "$content" 2>"$err_file")"; then
+      report_status "$id" "sent" "" "$via"
+      echo "     sent via $via"
     else
+      local err
+      err="$(cat "$err_file")"
       report_status "$id" "failed" "$err"
       echo "     FAILED: $err" >&2
     fi
+    rm -f "$err_file"
 
     # Remove id from in-flight tracking now that it's been reported. Built as
     # a fresh array (rather than reassigning in place) to dodge a bash 3.2
