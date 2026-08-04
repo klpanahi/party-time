@@ -23,7 +23,7 @@
 #
 #   ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
 #     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD \
-#       -e party_time_public_url=https://invites.panahi-systems.com \
+#       -e party_time_public_url=https://party-time.panahi-systems.com \
 #       -e party_time_admin_url=http://party-time.nginx-internal.local
 #
 # party_time_public_url and party_time_admin_url are the two configurable

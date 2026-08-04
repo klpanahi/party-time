@@ -1,6 +1,6 @@
 ---
 name: diagnose-party-time
-description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why invites.panahi-systems.com or party-time.nginx-internal.local is not responding.
+description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com or party-time.nginx-internal.local is not responding.
 ---
 
 # Diagnose party-time
@@ -41,7 +41,7 @@ Admin:   LAN → nginx on nginx-internal (.85) → docker.local:8081 → party-t
 | docker | 192.168.68.78 | party-time-public `:8080`, party-time-admin `:8081`, party-time-db (postgres:17) |
 | nginx-internal | 192.168.68.85 | nginx (admin UI) |
 
-Public URL: `https://invites.panahi-systems.com`  Admin URL: `http://party-time.nginx-internal.local/`
+Public URL: `https://party-time.panahi-systems.com`  Admin URL: `http://party-time.nginx-internal.local/`
 SSH to any VM as `ubuntu@<ip>` or `ubuntu@<name>.local`.
 
 > **The nginx upstreams reference `docker.local` by mDNS name.** Keep that in mind at
@@ -54,7 +54,7 @@ common cause of "I fixed this and it's still broken": the fix was never
 deployed.
 
 ```bash
-curl -s https://invites.panahi-systems.com/healthz
+curl -s https://party-time.panahi-systems.com/healthz
 curl -s http://party-time.nginx-internal.local/healthz
 git rev-parse --short origin/main
 ```
@@ -73,7 +73,7 @@ This is the highest-value single check for a site-wide failure. The error page i
 says which layer broke.
 
 ```bash
-curl -s -D- -o /dev/null https://invites.panahi-systems.com/
+curl -s -D- -o /dev/null https://party-time.panahi-systems.com/
 ```
 
 Inspect the status **and the content-type**:
@@ -203,7 +203,7 @@ same URL (`/invite/:id`). nginx splits them on the `Accept` header and sets
 wrong representation — verify:
 
 ```bash
-curl -s -D- -o /dev/null -H 'Accept: */*' https://invites.panahi-systems.com/invite/<id>
+curl -s -D- -o /dev/null -H 'Accept: */*' https://party-time.panahi-systems.com/invite/<id>
 ```
 
 That must return **`application/json`** *and* **`cache-control: no-store`**. An HTML body

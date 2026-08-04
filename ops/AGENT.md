@@ -27,7 +27,7 @@ Both share one Postgres database.
 
 | Surface | URL |
 |---|---|
-| Public invitee UI | `https://invites.panahi-systems.com` |
+| Public invitee UI | `https://party-time.panahi-systems.com` |
 | Admin UI | `http://party-time.nginx-internal.local/` |
 | Proxmox | `https://192.168.68.65:8006` |
 
@@ -46,7 +46,7 @@ default, so the deploy playbook installs a supervised `avahi-publish` alias
 
 | VM ID | Name | Proxmox tags | IP | Role |
 |---|---|---|---|---|
-| 201 | `nginx-cloudflared` | `ansible`, `nginx`, `cloudflared` | `192.168.68.77` | Public edge. Serves `/var/www/invitee-ui`. Runs the `cloudflared` tunnel for `https://invites.panahi-systems.com` |
+| 201 | `nginx-cloudflared` | `ansible`, `nginx`, `cloudflared` | `192.168.68.77` | Public edge. Serves `/var/www/invitee-ui`. Runs the `cloudflared` tunnel for `https://party-time.panahi-systems.com` |
 | 202 | `docker` | `ansible`, `docker` | `192.168.68.78` | Runs the 3 application containers. **2 vCPU / 2 GB RAM / NO SWAP** |
 | 203 | `nginx-internal` | `ansible`, `nginx-internal` | `192.168.68.85` | LAN-only admin UI at `http://party-time.nginx-internal.local/` (mDNS name reachable via SSH as `nginx-internal.local`). Serves `/var/www/admin-ui` |
 
@@ -336,10 +336,10 @@ ssh ubuntu@nginx-internal.local    'systemctl is-active nginx; sudo nginx -t'
 
 ```bash
 # Public edge, HTML branch — must return the React bundle
-curl -sI -H 'Accept: text/html' https://invites.panahi-systems.com/invite/75368427-e04f-4a09-9187-60d81d02845b
+curl -sI -H 'Accept: text/html' https://party-time.panahi-systems.com/invite/75368427-e04f-4a09-9187-60d81d02845b
 
 # Public edge, API branch — must return JSON from the backend
-curl -s  -H 'Accept: application/json' https://invites.panahi-systems.com/invite/75368427-e04f-4a09-9187-60d81d02845b
+curl -s  -H 'Accept: application/json' https://party-time.panahi-systems.com/invite/75368427-e04f-4a09-9187-60d81d02845b
 
 # Admin UI (dashboard is at the ROOT, not /admin)
 curl -sI http://party-time.nginx-internal.local/
@@ -349,9 +349,9 @@ curl -s http://party-time.nginx-internal.local/admin/events
 ```
 
 Both nginx vhosts are a hard cutover: a request with any other `Host` header
-(including the old `party-time.panahi-systems.com` / plain `nginx-internal.local`)
-gets `return 444;` from a catch-all `default_server` block, not a fallback to
-the app.
+(including the old plain `nginx-internal.local`, without the `party-time.`
+prefix) gets `return 444;` from a catch-all `default_server` block, not a
+fallback to the app.
 
 Both `/invite/:id` responses must carry `Cache-Control: no-store`. If they do not,
 see hazard 5.
@@ -499,7 +499,7 @@ Symptom: the site is broken.
 
 | Layer | Check | Healthy result |
 |---|---|---|
-| 1. Cloudflare edge | `curl -sI https://invites.panahi-systems.com/` | Not a `text/plain` `error code: 502` |
+| 1. Cloudflare edge | `curl -sI https://party-time.panahi-systems.com/` | Not a `text/plain` `error code: 502` |
 | 2. Tunnel | `ssh ubuntu@nginx-cloudflared.local 'systemctl is-active cloudflared'` | `active` |
 | 3. Public nginx | `ssh ubuntu@nginx-cloudflared.local 'systemctl is-active nginx; sudo nginx -t'` | `active`, `syntax is ok` |
 | 4. Name resolution | `ssh ubuntu@nginx-cloudflared.local 'getent hosts docker.local'` | Returns the **current** docker VM IP (`192.168.68.78`) |
