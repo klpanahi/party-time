@@ -17,6 +17,15 @@
 # Forwarding) — without it there's no SMS service on this Mac and those
 # texts are simply reported failed for manual resend.
 #
+# Detecting the iMessage failure in the first place is best-effort: the
+# `send` command can return successfully even though delivery fails a moment
+# later (Apple's iMessage-eligibility lookup happens over the network, after
+# `send` has already returned). To catch that, this script waits briefly
+# after sending and re-checks the sent message's `error` property before
+# declaring success. Whether that property is populated varies by macOS
+# version; where it isn't, this degrades to trusting `send`'s immediate
+# result, same as before.
+#
 # IMPORTANT: do not run this against a backend that also has TWILIO_* env vars
 # set and the Twilio worker running — the two drains would race for the same
 # rows. Leave TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER unset in
@@ -31,6 +40,7 @@ RATE=1
 SEND=0
 LOOP=0
 LOOP_INTERVAL=10
+DELIVERY_WAIT=4
 
 usage() {
   cat <<'EOF'
@@ -48,6 +58,11 @@ Options:
                       prints what it would send.
   --limit N          Max texts to pull per batch (default: 25).
   --rate SECONDS      Delay between sends (default: 1).
+  --delivery-wait SECONDS
+                      Delay after sending before checking whether iMessage
+                      itself flagged the message as failed (default: 4).
+                      Increase this on a slow connection if failed iMessages
+                      are being reported as sent.
   --loop [SECONDS]    Keep polling every SECONDS (default: 10) instead of
                       draining once and exiting.
   --api URL           Backend base URL (default: http://localhost:8080).
@@ -72,6 +87,10 @@ while [ $# -gt 0 ]; do
       ;;
     --rate)
       RATE="$2"
+      shift 2
+      ;;
+    --delivery-wait)
+      DELIVERY_WAIT="$2"
       shift 2
       ;;
     --loop)
@@ -185,19 +204,36 @@ normalize_phone() {
 # failure is the final result. On success prints "imessage" or "sms" to
 # stdout so the caller can record which channel was actually used.
 send_via_imessage() {
-  local phone="$1" body="$2"
+  local phone="$1" body="$2" deliveryWait="$3"
   # The leading "-" tells osascript to read the script from stdin; without it,
   # osascript treats the first positional argument after the heredoc as a
   # script *filename* and fails with "No such file or directory".
-  osascript - "$phone" "$body" <<'APPLESCRIPT'
+  osascript - "$phone" "$body" "$deliveryWait" <<'APPLESCRIPT'
 on run argv
   set thePhone to item 1 of argv
   set theBody to item 2 of argv
+  set deliveryWaitSecs to (item 3 of argv) as number
   tell application "Messages"
     try
       set targetService to 1st service whose service type = iMessage
       set targetBuddy to participant thePhone of targetService
-      send theBody to targetBuddy
+      set sentMsg to send theBody to targetBuddy
+
+      -- `send` can return without error even though iMessage delivery
+      -- fails a moment later — the recipient's eligibility is looked up
+      -- over the network after send() has already returned. Give it a
+      -- beat, then check whether Messages flagged the message we just
+      -- sent as failed. If this OS version doesn't expose the `error`
+      -- property, treat that as "can't verify" rather than a failure.
+      delay deliveryWaitSecs
+      set msgError to missing value
+      try
+        set msgError to error of sentMsg
+      end try
+      if msgError is not missing value and msgError is not "no error" then
+        error "iMessage reported delivery failure: " & msgError
+      end if
+
       return "imessage"
     on error iMessageErr
       try
@@ -262,7 +298,7 @@ drain_once() {
     echo "  -> #$id to $first $last ($normalized)"
     local err_file via
     err_file="$(mktemp)"
-    if via="$(send_via_imessage "$normalized" "$content" 2>"$err_file")"; then
+    if via="$(send_via_imessage "$normalized" "$content" "$DELIVERY_WAIT" 2>"$err_file")"; then
       report_status "$id" "sent" "" "$via"
       echo "     sent via $via"
     else
