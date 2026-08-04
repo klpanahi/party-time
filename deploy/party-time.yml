@@ -340,6 +340,16 @@
         dest: /etc/nginx/conf.d/party-time-admin-upstream.conf
         mode: "0644"
 
+    # avahi-utils provides the avahi-publish binary the unit below execs.
+    # site.yml only installs avahi-daemon + libnss-mdns (resolution), not
+    # avahi-utils (publishing) — without this the unit fails at exec time
+    # with status=203/EXEC and the alias never comes up.
+    - name: Install avahi-utils (avahi-publish)
+      ansible.builtin.apt:
+        name: avahi-utils
+        state: present
+        update_cache: true
+
     # party_time_admin_host (party-time.nginx-internal.local) is a THREE-label
     # .local name. Avahi on this VM only auto-publishes the machine's own
     # two-label hostname (nginx-internal.local) — it has no config-file
