@@ -9,6 +9,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+# PARTY_TIME_PUBLIC_URL / PARTY_TIME_ADMIN_URL — see deploy/hosts.env for the
+# defaults. Already-exported values win, so a one-off deploy to a different
+# host is just: PARTY_TIME_PUBLIC_URL=https://staging.example.com ./deploy.sh
+# shellcheck source=deploy/hosts.env
+. "$ROOT/deploy/hosts.env"
+
 ALLOW_DIRTY=false
 ALLOW_BRANCH=false
 NGINX_ONLY=false
@@ -90,7 +96,12 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 echo "Deploy log: $LOG_FILE"
 
-ANSIBLE_ARGS=("$ROOT/deploy/party-time.yml" -e "party_time_repo=$ROOT")
+ANSIBLE_ARGS=(
+  "$ROOT/deploy/party-time.yml"
+  -e "party_time_repo=$ROOT"
+  -e "party_time_public_url=$PARTY_TIME_PUBLIC_URL"
+  -e "party_time_admin_url=$PARTY_TIME_ADMIN_URL"
+)
 [ "$ALLOW_DIRTY" = true ]  && ANSIBLE_ARGS+=(-e allow_dirty=true)
 [ "$ALLOW_BRANCH" = true ] && ANSIBLE_ARGS+=(-e allow_branch=true)
 if [ "$NGINX_ONLY" = true ]; then
@@ -179,8 +190,8 @@ verify_sha() {
   fi
   echo "  $label sha=$sha (matches)"
 }
-verify_sha "public edge" "https://party-time.panahi-systems.com/healthz"
-verify_sha "admin edge"  "http://nginx-internal.local/healthz"
+verify_sha "public edge" "$PARTY_TIME_PUBLIC_URL/healthz"
+verify_sha "admin edge"  "$PARTY_TIME_ADMIN_URL/healthz"
 
 # ── 7. Existing smoke checks (see ops/healthcheck.sh for the URLs) ─────────
 echo "=== Smoke checks ==="
@@ -194,9 +205,37 @@ smoke_check() {
   fi
   echo "  $label -> 200 ($url)"
 }
-smoke_check "admin UI"   "http://nginx-internal.local/"
-smoke_check "admin API"  "http://nginx-internal.local/admin/events"
-smoke_check "public site" "https://party-time.panahi-systems.com/"
+smoke_check "admin UI"   "$PARTY_TIME_ADMIN_URL/"
+smoke_check "admin API"  "$PARTY_TIME_ADMIN_URL/admin/events"
+smoke_check "public site" "$PARTY_TIME_PUBLIC_URL/"
+
+# ── 8. Verify the deployed backend actually builds invite links against the
+# new base — this is the entire point of PARTY_TIME_PUBLIC_URL existing.
+# Skips gracefully if there are no events, or no invitees on the first event
+# with any (invite_url is only emitted per-invitee, nested under the event).
+echo "=== Verifying invite base URL ==="
+EVENTS_JSON="$(curl -s --max-time 10 "$PARTY_TIME_ADMIN_URL/admin/events")"
+FIRST_EVENT_ID="$(printf '%s' "$EVENTS_JSON" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)"
+if [ -z "$FIRST_EVENT_ID" ]; then
+  echo "  (no events yet — skipping invite base check)"
+else
+  EVENT_JSON="$(curl -s --max-time 10 "$PARTY_TIME_ADMIN_URL/admin/events/$FIRST_EVENT_ID")"
+  INVITE_URL="$(printf '%s' "$EVENT_JSON" | grep -o '"invite_url":"[^"]*"' | head -1 | cut -d'"' -f4)"
+  if [ -z "$INVITE_URL" ]; then
+    echo "  (event has no invitees yet — skipping invite base check)"
+  else
+    case "$INVITE_URL" in
+      "$PARTY_TIME_PUBLIC_URL"/*)
+        echo "  invite_url=$INVITE_URL (matches $PARTY_TIME_PUBLIC_URL)"
+        ;;
+      *)
+        echo "REFUSING: invite_url='$INVITE_URL' does not start with '$PARTY_TIME_PUBLIC_URL'." >&2
+        echo "  INVITEE_BASE_URL likely didn't reach the backend — check /opt/party-time/.env on docker.local." >&2
+        exit 1
+        ;;
+    esac
+  fi
+fi
 
 echo ""
 echo "=== Deploy complete: sha=$GIT_SHA ==="

@@ -16,9 +16,17 @@ NGINX_CF=192.168.68.77   # nginx-cloudflared: cloudflared + public nginx
 DOCKER_VM=192.168.68.78  # docker: containers + postgres
 NGINX_INT=192.168.68.85  # nginx-internal: admin nginx
 
-PUBLIC_URL="https://party-time.panahi-systems.com/"
-ADMIN_URL="http://nginx-internal.local/"
-ADMIN_API_URL="http://nginx-internal.local/admin/events"
+# PARTY_TIME_PUBLIC_URL / PARTY_TIME_ADMIN_URL — see deploy/hosts.env for the
+# defaults and how deploy.sh derives the same values.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=../deploy/hosts.env
+. "$ROOT/deploy/hosts.env"
+
+PUBLIC_URL="$PARTY_TIME_PUBLIC_URL/"
+ADMIN_URL="$PARTY_TIME_ADMIN_URL/"
+ADMIN_API_URL="$PARTY_TIME_ADMIN_URL/admin/events"
+ADMIN_HOSTNAME="${PARTY_TIME_ADMIN_URL#*://}"
+ADMIN_HOSTNAME="${ADMIN_HOSTNAME%%/*}"
 
 SSH_OPTS=(-o ConnectTimeout=8 -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
@@ -69,7 +77,7 @@ resolve_host() {
     printf '%s' "$out"
 }
 
-for name in docker.local nginx-internal.local nginx-cloudflared.local; do
+for name in docker.local nginx-internal.local nginx-cloudflared.local "$ADMIN_HOSTNAME"; do
     ip=$(resolve_host "$name")
     if [ -n "$ip" ]; then
         pass "mDNS $name -> $ip"

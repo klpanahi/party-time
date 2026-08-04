@@ -42,6 +42,11 @@ services:
       ADMIN_ENABLED: "false"
       DBHOST: postgres-db
       DBPORT: "5432"
+      # From the deploy playbook's own .env (see deploy/party-time.yml), not
+      # .env.prod — this overrides anything of the same name .env.prod might
+      # carry, and :? refuses to start rather than silently falling back to
+      # the http://localhost:5174 default baked into the binary.
+      INVITEE_BASE_URL: ${INVITEE_BASE_URL:?INVITEE_BASE_URL not set — see deploy/hosts.env}
     ports:
       - "8080:8080"
     depends_on:
@@ -59,6 +64,10 @@ services:
       ADMIN_ENABLED: "true"
       DBHOST: postgres-db
       DBPORT: "5432"
+      # See the same var on public-backend above — the admin container needs
+      # it too, since adminGetEvent/adminLaunchEvent/adminSendMessage build
+      # every invite_url and SMS body from it.
+      INVITEE_BASE_URL: ${INVITEE_BASE_URL:?INVITEE_BASE_URL not set — see deploy/hosts.env}
     ports:
       - "8081:8080"
     depends_on:

@@ -22,9 +22,19 @@
 # resolve, from the party-time repo so `$PWD` is party_time_repo:
 #
 #   ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
-#     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD
+#     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD \
+#       -e party_time_public_url=https://party-time.panahi-systems.com \
+#       -e party_time_admin_url=http://party-time.nginx-internal.local
 #
-# That is the whole invocation. Prefer `./deploy.sh`, which wraps it.
+# party_time_public_url and party_time_admin_url are the two configurable
+# hostnames (see deploy/hosts.env — the single source of truth for their
+# defaults). They drive: the invite base URL baked into the backend
+# (INVITEE_BASE_URL, written into the compose .env below), and the
+# server_name of each nginx vhost (derived via the urlsplit filter so the
+# URL and the vhost hostname can never drift apart).
+#
+# That is the whole invocation. Prefer `./deploy.sh`, which wraps it and
+# supplies both -e vars from deploy/hosts.env automatically.
 
 - name: Deploy party-time backend
   hosts: tag_docker
@@ -180,11 +190,18 @@
     # get a variable into docker_compose_v2's invocation of the `docker
     # compose` CLI — the module has no per-service `environment:` passthrough
     # of its own.
-    - name: Write compose .env with the pinned image tag
+    # INVITEE_BASE_URL travels through this file, not .env.prod: .env.prod is
+    # hand-maintained secrets only (DB, Twilio) and is never templated by this
+    # playbook (see the .env.prod guard above). docker-compose.prod.yml reads
+    # INVITEE_BASE_URL via ${INVITEE_BASE_URL:?...} on both public-backend and
+    # admin-backend, and environment: there overrides anything of the same
+    # name that might exist in .env.prod's env_file, so this value always wins.
+    - name: Write compose .env with the pinned image tag and public URL
       ansible.builtin.copy:
         dest: "{{ deploy_dest }}/.env"
         content: |
           PARTY_TIME_IMAGE={{ pinned_image }}
+          INVITEE_BASE_URL={{ party_time_public_url }}
         mode: "0644"
 
     # build: never — the image is loaded above, already built. If it were ever
@@ -221,13 +238,22 @@
   tags: [nginx]
   vars:
     nginx_remove_default_vhost: true
+    party_time_public_host: "{{ party_time_public_url | urlsplit('hostname') }}"
     nginx_vhosts:
-      - listen: "80 default_server"
-        server_name: "_"
+      - listen: "80"
+        server_name: "{{ party_time_public_host }}"
         root: /var/www/invitee-ui
         index: index.html
         filename: party-time-public.conf
         extra_parameters: "{{ lookup('file', party_time_repo + '/deploy/nginx/public.conf') }}"
+      # Hard cutover: without an explicit default_server, nginx promotes the
+      # first server block to implicit default and keeps answering any Host
+      # it doesn't recognize (including the old party-time.panahi-systems.com)
+      # with this vhost. This block makes an unrecognized Host fail instead.
+      - listen: "80 default_server"
+        server_name: "_"
+        filename: party-time-public-catchall.conf
+        extra_parameters: "return 444;"
   # pre_tasks always run before roles in a play, regardless of the order
   # they're written in — so the static files land at /var/www/invitee-ui
   # before the geerlingguy.nginx role (re)applies the vhost pointing at it.
@@ -272,13 +298,21 @@
   tags: [nginx]
   vars:
     nginx_remove_default_vhost: true
+    party_time_admin_host: "{{ party_time_admin_url | urlsplit('hostname') }}"
     nginx_vhosts:
-      - listen: "80 default_server"
-        server_name: "_"
+      - listen: "80"
+        server_name: "{{ party_time_admin_host }}"
         root: /var/www/admin-ui
         index: index.html
         filename: party-time-admin.conf
         extra_parameters: "{{ lookup('file', party_time_repo + '/deploy/nginx/admin.conf') }}"
+      # Same hard-cutover rationale as the public-nginx play above: without
+      # this, nginx would keep answering plain nginx-internal.local (and any
+      # other Host) with the admin vhost.
+      - listen: "80 default_server"
+        server_name: "_"
+        filename: party-time-admin-catchall.conf
+        extra_parameters: "return 444;"
   # Same ordering rationale as the public-nginx play above.
   pre_tasks:
     - name: Create admin UI web root
@@ -305,5 +339,43 @@
         src: "{{ party_time_repo }}/deploy/nginx/admin-upstream.conf"
         dest: /etc/nginx/conf.d/party-time-admin-upstream.conf
         mode: "0644"
+
+    # party_time_admin_host (party-time.nginx-internal.local) is a THREE-label
+    # .local name. Avahi on this VM only auto-publishes the machine's own
+    # two-label hostname (nginx-internal.local) — it has no config-file
+    # mechanism for extra aliases, so a small supervised avahi-publish process
+    # is the standard way to add one. -R suppresses the reverse PTR record so
+    # this VM's IP keeps reverse-resolving to nginx-internal.local (not this
+    # alias) — see ops/AGENT.md hazard 6 for why that matters. -f keeps it
+    # retrying if avahi-daemon is momentarily down instead of exiting once.
+    - name: Install mDNS alias unit for the admin hostname
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/party-time-mdns-alias.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Publish {{ party_time_admin_host }} over mDNS
+          Requires=avahi-daemon.service
+          After=avahi-daemon.service
+
+          [Service]
+          ExecStart=/usr/bin/avahi-publish -a -R -f {{ party_time_admin_host }} {{ ansible_default_ipv4.address }}
+          Restart=always
+          RestartSec=5s
+
+          [Install]
+          WantedBy=multi-user.target
+      register: mdns_alias_unit
+
+    - name: Reload systemd if the mDNS alias unit changed
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: mdns_alias_unit.changed
+
+    - name: Enable and start the mDNS alias unit
+      ansible.builtin.systemd:
+        name: party-time-mdns-alias
+        enabled: true
+        state: "{{ 'restarted' if mdns_alias_unit.changed else 'started' }}"
   roles:
     - geerlingguy.nginx

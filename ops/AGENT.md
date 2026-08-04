@@ -28,8 +28,15 @@ Both share one Postgres database.
 | Surface | URL |
 |---|---|
 | Public invitee UI | `https://party-time.panahi-systems.com` |
-| Admin UI | `http://nginx-internal.local/` |
+| Admin UI | `http://party-time.nginx-internal.local/` |
 | Proxmox | `https://192.168.68.65:8006` |
+
+Both are configurable — see `deploy/hosts.env` in the party-time repo
+(`PARTY_TIME_PUBLIC_URL` / `PARTY_TIME_ADMIN_URL`), consumed by
+`deploy/party-time.yml`, `deploy.sh`, and `ops/healthcheck.sh`. The admin
+hostname is a three-label `.local` name; VM 203 doesn't serve that name by
+default, so the deploy playbook installs a supervised `avahi-publish` alias
+(`party-time-mdns-alias.service`) for it — see hazard 6b below.
 
 ---
 
@@ -41,7 +48,7 @@ Both share one Postgres database.
 |---|---|---|---|---|
 | 201 | `nginx-cloudflared` | `ansible`, `nginx`, `cloudflared` | `192.168.68.77` | Public edge. Serves `/var/www/invitee-ui`. Runs the `cloudflared` tunnel for `https://party-time.panahi-systems.com` |
 | 202 | `docker` | `ansible`, `docker` | `192.168.68.78` | Runs the 3 application containers. **2 vCPU / 2 GB RAM / NO SWAP** |
-| 203 | `nginx-internal` | `ansible`, `nginx-internal` | `192.168.68.85` | LAN-only admin UI at `http://nginx-internal.local/`. Serves `/var/www/admin-ui` |
+| 203 | `nginx-internal` | `ansible`, `nginx-internal` | `192.168.68.85` | LAN-only admin UI at `http://party-time.nginx-internal.local/` (mDNS name reachable via SSH as `nginx-internal.local`). Serves `/var/www/admin-ui` |
 
 ### Containers on VM 202 (`docker`)
 
@@ -335,11 +342,16 @@ curl -sI -H 'Accept: text/html' https://party-time.panahi-systems.com/invite/753
 curl -s  -H 'Accept: application/json' https://party-time.panahi-systems.com/invite/75368427-e04f-4a09-9187-60d81d02845b
 
 # Admin UI (dashboard is at the ROOT, not /admin)
-curl -sI http://nginx-internal.local/
+curl -sI http://party-time.nginx-internal.local/
 
 # Admin API through internal nginx
-curl -s http://nginx-internal.local/admin/events
+curl -s http://party-time.nginx-internal.local/admin/events
 ```
+
+Both nginx vhosts are a hard cutover: a request with any other `Host` header
+(including the old plain `nginx-internal.local`, without the `party-time.`
+prefix) gets `return 444;` from a catch-all `default_server` block, not a
+fallback to the app.
 
 Both `/invite/:id` responses must carry `Cache-Control: no-store`. If they do not,
 see hazard 5.
@@ -630,6 +642,7 @@ breaks the site.
 | b | `docker.local` resolved to an IP nothing was listening on | The docker VM's DHCP lease moved `192.168.68.89` → `192.168.68.78` on 2026-07-27 | None needed once (a) was removed — mDNS tracks the new IP automatically |
 | c | Docker VM unreachable by IPv4 for 17+ hours while containers kept running normally | Interface `enp6s18` failed with `Could not set NDisc address: Connection timed out` and lost its IPv4 address entirely; only IPv6 link-local remained | `sudo networkctl reconfigure enp6s18` |
 | d | `nginx-cloudflared.local` and `nginx-internal.local` resolved inconsistently | Both nginx VMs logged avahi `Host name conflict, retrying with -2` and renamed themselves to `nginx-cloudflared-2.local` / `nginx-internal-2.local`. A network flap can make avahi see a delayed echo of its *own* probe and wrongly conclude the name is taken | `sudo systemctl restart avahi-daemon` on each affected VM |
+| e | `party-time.nginx-internal.local` (the admin app hostname) stops resolving while plain `nginx-internal.local` (the VM's own name) still resolves fine | This three-label alias isn't published by avahi-daemon itself — `deploy/party-time.yml` installs a small supervised `avahi-publish -a -R` process (`party-time-mdns-alias.service`) on VM 203 to answer for it, and that process died or was never (re)installed | `ssh ubuntu@nginx-internal.local 'systemctl status party-time-mdns-alias; sudo systemctl restart party-time-mdns-alias'`. If the unit is missing entirely, re-run `./deploy.sh` (or `--nginx-only`) |
 
 Diagnostics for any suspected mDNS problem:
 
@@ -638,6 +651,7 @@ ssh ubuntu@nginx-cloudflared.local 'grep -n docker.local /etc/hosts'   # must pr
 ssh ubuntu@nginx-cloudflared.local 'getent hosts docker.local'         # must be 192.168.68.78
 ssh ubuntu@docker.local 'ip -4 addr show enp6s18'                      # must have an IPv4
 ssh ubuntu@nginx-internal.local 'journalctl -u avahi-daemon --no-pager -n 50 | grep -i conflict'
+ssh ubuntu@nginx-internal.local 'systemctl is-active party-time-mdns-alias'  # must be "active"
 ```
 
 > Check `/etc/hosts` **first**. It silently overrides everything else, and because
@@ -701,7 +715,7 @@ broken deploy.
 
 | | |
 |---|---|
-| Admin dashboard | `http://nginx-internal.local/` — **the root** |
+| Admin dashboard | `http://party-time.nginx-internal.local/` — **the root** |
 | Admin SPA routes | `/`, `/contacts`, `/event/:id` |
 | `/admin/*` | JSON API endpoints only, proxied to `party-time-admin` |
 

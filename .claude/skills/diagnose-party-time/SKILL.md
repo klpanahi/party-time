@@ -1,6 +1,6 @@
 ---
 name: diagnose-party-time
-description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com or nginx-internal.local is not responding.
+description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com or party-time.nginx-internal.local is not responding.
 ---
 
 # Diagnose party-time
@@ -41,7 +41,7 @@ Admin:   LAN → nginx on nginx-internal (.85) → docker.local:8081 → party-t
 | docker | 192.168.68.78 | party-time-public `:8080`, party-time-admin `:8081`, party-time-db (postgres:17) |
 | nginx-internal | 192.168.68.85 | nginx (admin UI) |
 
-Public URL: `https://party-time.panahi-systems.com`  Admin URL: `http://nginx-internal.local/`
+Public URL: `https://party-time.panahi-systems.com`  Admin URL: `http://party-time.nginx-internal.local/`
 SSH to any VM as `ubuntu@<ip>` or `ubuntu@<name>.local`.
 
 > **The nginx upstreams reference `docker.local` by mDNS name.** Keep that in mind at
@@ -55,7 +55,7 @@ deployed.
 
 ```bash
 curl -s https://party-time.panahi-systems.com/healthz
-curl -s http://nginx-internal.local/healthz
+curl -s http://party-time.nginx-internal.local/healthz
 git rev-parse --short origin/main
 ```
 
@@ -89,14 +89,19 @@ point at completely different machines.
 
 ## Step 2 — Is it just name resolution on the client?
 
-If the user cannot reach `nginx-internal.local` at all, check the Mac first before
-blaming the server.
+If the user cannot reach `party-time.nginx-internal.local` (the admin app hostname)
+at all, check the Mac first before blaming the server.
 
 ```bash
+dscacheutil -q host -a name party-time.nginx-internal.local
 dscacheutil -q host -a name nginx-internal.local
 dscacheutil -q host -a name docker.local
 dscacheutil -q host -a name nginx-cloudflared.local
 ```
+
+If `nginx-internal.local` (the VM's own name) resolves but
+`party-time.nginx-internal.local` does not, the VM is fine but its
+`party-time-mdns-alias` systemd unit has died — see `ops/AGENT.md` hazard 6e.
 
 Compare **several** `.local` hosts at once. If *all* fail, the Mac is off the LAN/VPN or
 mDNS is dead locally. If only *some* fail, suspect an **avahi hostname conflict** →
