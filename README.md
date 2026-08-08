@@ -50,11 +50,13 @@ Text Message Forwarding to be enabled from a paired iPhone (iPhone: Settings > M
 Text Message Forwarding) — without it there's no SMS service on the Mac and those texts
 are just reported failed for manual resend.
 
-Detecting the iMessage failure is best-effort: `send` can return successfully even though
-delivery fails a moment later over the network, so the script waits `--delivery-wait`
-seconds (default 4) after each send and checks whether Messages flagged it as failed
-before trusting it. Raise `--delivery-wait` if failed iMessages are being reported as
-sent on a slow connection.
+That fallback only covers failures Messages reports immediately — the usual Android case,
+where it already knows the number isn't iMessage-capable. It does **not** catch a silent
+failure, where the send appears to succeed and delivery fails a moment later over the
+network; those are recorded as `sent` and need a manual resend. Messages.app's AppleScript
+interface exposes no sent-message object to check, so there's nothing to inspect from the
+script; the only real source of delivery state is `~/Library/Messages/chat.db`, which needs
+Full Disk Access and isn't wired up here.
 
 Do not run this alongside a backend that has `TWILIO_*` configured — the Twilio worker and
 this script would race for the same queue. The first run may need you to grant your

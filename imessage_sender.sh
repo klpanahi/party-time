@@ -17,14 +17,21 @@
 # Forwarding) — without it there's no SMS service on this Mac and those
 # texts are simply reported failed for manual resend.
 #
-# Detecting the iMessage failure in the first place is best-effort: the
-# `send` command can return successfully even though delivery fails a moment
-# later (Apple's iMessage-eligibility lookup happens over the network, after
-# `send` has already returned). To catch that, this script waits briefly
-# after sending and re-checks the sent message's `error` property before
-# declaring success. Whether that property is populated varies by macOS
-# version; where it isn't, this degrades to trusting `send`'s immediate
-# result, same as before.
+# KNOWN LIMIT: the fallback only fires for failures `send` raises
+# synchronously (the common Android case — Messages already knows the handle
+# isn't iMessage-capable and errors immediately). It cannot catch a *silent*
+# failure, where `send` returns fine and delivery fails a moment later over
+# the network; those still land as 'sent' and need a manual resend.
+#
+# Detecting that case is not possible from AppleScript: Messages.app's
+# scripting dictionary defines no `message` class at all (only participant,
+# account, chat, file transfer) and its `send` command declares no result,
+# so there is no sent-message object to inspect and no `error` property to
+# read. An earlier attempt to do so shipped broken — `error` is a reserved
+# AppleScript keyword, so `error of sentMsg` failed to *compile* and took
+# the whole script down with it. The only real source for delivery state is
+# ~/Library/Messages/chat.db, which needs Full Disk Access; that's a
+# deliberate non-goal here rather than another unverifiable guess.
 #
 # IMPORTANT: do not run this against a backend that also has TWILIO_* env vars
 # set and the Twilio worker running — the two drains would race for the same
@@ -40,7 +47,6 @@ RATE=1
 SEND=0
 LOOP=0
 LOOP_INTERVAL=10
-DELIVERY_WAIT=4
 
 usage() {
   cat <<'EOF'
@@ -58,11 +64,6 @@ Options:
                       prints what it would send.
   --limit N          Max texts to pull per batch (default: 25).
   --rate SECONDS      Delay between sends (default: 1).
-  --delivery-wait SECONDS
-                      Delay after sending before checking whether iMessage
-                      itself flagged the message as failed (default: 4).
-                      Increase this on a slow connection if failed iMessages
-                      are being reported as sent.
   --loop [SECONDS]    Keep polling every SECONDS (default: 10) instead of
                       draining once and exiting.
   --api URL           Backend base URL (default: http://localhost:8080).
@@ -75,6 +76,27 @@ Examples:
 EOF
 }
 
+# Options are validated up front rather than left to fail later. A bad
+# --limit/--rate used to surface only once osascript or sleep choked on it,
+# by which point drain_once had already claimed rows into 'sending' — so a
+# typo burned a whole batch to 'failed' instead of just rejecting the flag.
+# Note the "${2:-}" reads: under `set -u`, a bare "$2" on a trailing flag
+# aborts with "unbound variable" before we can print anything useful.
+require_value() {
+  if [ -z "${2:-}" ]; then
+    echo "Option $1 requires a value." >&2
+    exit 1
+  fi
+}
+
+require_number() {
+  require_value "$1" "${2:-}"
+  if ! [[ "$2" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "Option $1 expects a non-negative number, got: $2" >&2
+    exit 1
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --send)
@@ -82,15 +104,13 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --limit)
+      require_number "$1" "${2:-}"
       LIMIT="$2"
       shift 2
       ;;
     --rate)
+      require_number "$1" "${2:-}"
       RATE="$2"
-      shift 2
-      ;;
-    --delivery-wait)
-      DELIVERY_WAIT="$2"
       shift 2
       ;;
     --loop)
@@ -103,6 +123,7 @@ while [ $# -gt 0 ]; do
       fi
       ;;
     --api)
+      require_value "$1" "${2:-}"
       API="$2"
       shift 2
       ;;
@@ -203,43 +224,33 @@ normalize_phone() {
 # Text Message Forwarding); without it there's no fallback and iMessage's
 # failure is the final result. On success prints "imessage" or "sms" to
 # stdout so the caller can record which channel was actually used.
+#
+# Only failures that `send` itself raises are caught — see the header comment
+# for why a late, silent delivery failure can't be detected from AppleScript.
 send_via_imessage() {
-  local phone="$1" body="$2" deliveryWait="$3"
+  local phone="$1" body="$2"
   # The leading "-" tells osascript to read the script from stdin; without it,
   # osascript treats the first positional argument after the heredoc as a
   # script *filename* and fails with "No such file or directory".
-  osascript - "$phone" "$body" "$deliveryWait" <<'APPLESCRIPT'
+  osascript - "$phone" "$body" <<'APPLESCRIPT'
 on run argv
   set thePhone to item 1 of argv
   set theBody to item 2 of argv
-  set deliveryWaitSecs to (item 3 of argv) as number
   tell application "Messages"
     try
+      -- `send` is deliberately the LAST statement in this block. Every error
+      -- the handler below can see is therefore one that happened before the
+      -- message went out, so the SMS retry can never duplicate a message that
+      -- iMessage already delivered.
       set targetService to 1st service whose service type = iMessage
       set targetBuddy to participant thePhone of targetService
-      set sentMsg to send theBody to targetBuddy
-
-      -- `send` can return without error even though iMessage delivery
-      -- fails a moment later — the recipient's eligibility is looked up
-      -- over the network after send() has already returned. Give it a
-      -- beat, then check whether Messages flagged the message we just
-      -- sent as failed. If this OS version doesn't expose the `error`
-      -- property, treat that as "can't verify" rather than a failure.
-      delay deliveryWaitSecs
-      set msgError to missing value
-      try
-        set msgError to error of sentMsg
-      end try
-      if msgError is not missing value and msgError is not "no error" then
-        error "iMessage reported delivery failure: " & msgError
-      end if
-
+      send theBody to targetBuddy
       return "imessage"
     on error iMessageErr
       try
         set smsService to 1st service whose service type = SMS
-        set targetBuddy to participant thePhone of smsService
-        send theBody to targetBuddy
+        set smsBuddy to participant thePhone of smsService
+        send theBody to smsBuddy
         return "sms"
       on error
         -- No SMS fallback available (Text Message Forwarding not enabled) —
@@ -298,7 +309,7 @@ drain_once() {
     echo "  -> #$id to $first $last ($normalized)"
     local err_file via
     err_file="$(mktemp)"
-    if via="$(send_via_imessage "$normalized" "$content" "$DELIVERY_WAIT" 2>"$err_file")"; then
+    if via="$(send_via_imessage "$normalized" "$content" 2>"$err_file")"; then
       report_status "$id" "sent" "" "$via"
       echo "     sent via $via"
     else
