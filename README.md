@@ -44,6 +44,18 @@ outcome back (`POST /admin/texts/:id/status`) so nothing is double-sent or left 
 ./imessage_sender.sh --send --loop   # keep polling and sending
 ```
 
+Recipients who can't receive iMessage (e.g. Android) are retried automatically over SMS,
+the same fallback Messages.app's own "Send as Text Message" button uses. That requires
+Text Message Forwarding to be enabled from a paired iPhone (iPhone: Settings > Messages >
+Text Message Forwarding) — without it there's no SMS service on the Mac and those texts
+are just reported failed for manual resend.
+
+Detecting the iMessage failure is best-effort: `send` can return successfully even though
+delivery fails a moment later over the network, so the script waits `--delivery-wait`
+seconds (default 4) after each send and checks whether Messages flagged it as failed
+before trusting it. Raise `--delivery-wait` if failed iMessages are being reported as
+sent on a slow connection.
+
 Do not run this alongside a backend that has `TWILIO_*` configured — the Twilio worker and
 this script would race for the same queue. The first run may need you to grant your
 terminal app Automation access to Messages.app (System Settings → Privacy & Security →
