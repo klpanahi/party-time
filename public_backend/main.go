@@ -103,6 +103,7 @@ func main() {
 		admin.POST("/texts/:id/resend", env.adminResendText)
 		admin.GET("/texts/pending", env.adminClaimPendingTexts)
 		admin.POST("/texts/:id/status", env.adminReportTextStatus)
+		admin.PUT("/texts/:id/status", env.adminOverrideTextStatus)
 	}
 
 	router.Run(":8080")

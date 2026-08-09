@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -638,6 +639,80 @@ func (env *Env) adminReportTextStatus(c *gin.Context) {
 
 	if n, _ := result.RowsAffected(); n == 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": "text not found or not in a sending state"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// validTextStatuses is every state a texts row may sit in. The normal lifecycle
+// is pending -> sending -> sent | failed; an admin override can jump to any of
+// them (see adminOverrideTextStatus).
+var validTextStatuses = map[string]bool{
+	"pending": true,
+	"sending": true,
+	"sent":    true,
+	"failed":  true,
+}
+
+// adminOverrideTextStatus lets an admin force a text into any status, from any
+// status. It exists because the iMessage sender can only observe delivery
+// failures it is told about, so a text that silently never arrived still lands
+// in 'sent' and adminResendText's failed-only guard leaves it stuck. Setting a
+// row back to 'pending' is the per-recipient resend path: the worker and the
+// external sender both pick pending rows up on their next claim.
+//
+// This deliberately has no current-status guard, unlike adminReportTextStatus
+// (which is the sender callback and must only act on rows it claimed). Forcing
+// a row that a sender currently holds in 'sending' can produce a duplicate
+// send; the admin UI confirms before doing that.
+func (env *Env) adminOverrideTextStatus(c *gin.Context) {
+	id := c.Param("id")
+
+	var req TextStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !validTextStatuses[req.Status] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be 'pending', 'sending', 'sent' or 'failed'"})
+		return
+	}
+
+	// Each target status also resets the columns that would otherwise describe a
+	// delivery attempt that no longer applies, so the row stays self-consistent.
+	var result sql.Result
+	var err error
+	switch req.Status {
+	case "pending":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'pending', error = NULL, sent_at = NULL, provider_sid = NULL
+			 WHERE id = $1`, id,
+		)
+	case "sending":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'sending', error = NULL WHERE id = $1`, id,
+		)
+	case "sent":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, id,
+		)
+	case "failed":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'failed', error = $2 WHERE id = $1`,
+			id, nullIfEmpty(req.Error),
+		)
+	}
+
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if n, _ := result.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "text not found"})
 		return
 	}
 
