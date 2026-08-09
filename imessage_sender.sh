@@ -17,21 +17,27 @@
 # Forwarding) — without it there's no SMS service on this Mac and those
 # texts are simply reported failed for manual resend.
 #
-# KNOWN LIMIT: the fallback only fires for failures `send` raises
-# synchronously (the common Android case — Messages already knows the handle
-# isn't iMessage-capable and errors immediately). It cannot catch a *silent*
-# failure, where `send` returns fine and delivery fails a moment later over
-# the network; those still land as 'sent' and need a manual resend.
+# Two different iMessage failures have to be caught, and only one of them is
+# visible to AppleScript:
 #
-# Detecting that case is not possible from AppleScript: Messages.app's
-# scripting dictionary defines no `message` class at all (only participant,
-# account, chat, file transfer) and its `send` command declares no result,
-# so there is no sent-message object to inspect and no `error` property to
-# read. An earlier attempt to do so shipped broken — `error` is a reserved
-# AppleScript keyword, so `error of sentMsg` failed to *compile* and took
-# the whole script down with it. The only real source for delivery state is
-# ~/Library/Messages/chat.db, which needs Full Disk Access; that's a
-# deliberate non-goal here rather than another unverifiable guess.
+#   1. Messages refuses the send outright, because it already knows the
+#      handle isn't iMessage-capable. `send` errors and we retry over SMS.
+#   2. Messages ACCEPTS the send and delivery fails a moment later over the
+#      network. `send` returns clean; the message turns into a red "Not
+#      Delivered" in the UI seconds afterwards.
+#
+# Case 2 cannot be seen from AppleScript at all: Messages.app's scripting
+# dictionary defines no `message` class (only participant, account, chat,
+# file transfer) and its `send` command declares no result, so there is no
+# sent-message object to inspect. An earlier attempt to read an `error`
+# property off one shipped broken — `error` is a reserved AppleScript
+# keyword, so it failed to *compile* and took the whole script down.
+#
+# So case 2 is detected against Messages' own SQLite store instead
+# (~/Library/Messages/chat.db, read-only), which carries the error code
+# behind that "Not Delivered" badge. That needs Full Disk Access on whatever
+# runs this script; without it the check is skipped and the script says so
+# loudly on every run rather than quietly reporting failures as sent.
 #
 # IMPORTANT: do not run this against a backend that also has TWILIO_* env vars
 # set and the Twilio worker running — the two drains would race for the same
@@ -47,6 +53,12 @@ RATE=1
 SEND=0
 LOOP=0
 LOOP_INTERVAL=10
+VERIFY=1
+DELIVERY_WAIT=8
+# Set per-text by drain_once; send_through_service appends osascript's stderr
+# here so it can be reported as the row's error without swallowing our own
+# progress output.
+ERR_FILE=""
 
 usage() {
   cat <<'EOF'
@@ -64,6 +76,11 @@ Options:
                       prints what it would send.
   --limit N          Max texts to pull per batch (default: 25).
   --rate SECONDS      Delay between sends (default: 1).
+  --delivery-wait N   Seconds to watch for a delivery failure after each
+                      iMessage before accepting it as sent (default: 8).
+                      Raise it on a slow connection.
+  --no-verify         Skip the chat.db delivery check entirely and trust
+                      whatever Messages reports immediately.
   --loop [SECONDS]    Keep polling every SECONDS (default: 10) instead of
                       draining once and exiting.
   --api URL           Backend base URL (default: http://localhost:8080).
@@ -97,6 +114,16 @@ require_number() {
   fi
 }
 
+# Whole seconds only — this one feeds shell arithmetic for the poll deadline,
+# which can't handle a decimal.
+require_int() {
+  require_value "$1" "${2:-}"
+  if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+    echo "Option $1 expects a whole number of seconds, got: $2" >&2
+    exit 1
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --send)
@@ -112,6 +139,15 @@ while [ $# -gt 0 ]; do
       require_number "$1" "${2:-}"
       RATE="$2"
       shift 2
+      ;;
+    --delivery-wait)
+      require_int "$1" "${2:-}"
+      DELIVERY_WAIT="$2"
+      shift 2
+      ;;
+    --no-verify)
+      VERIFY=0
+      shift
       ;;
     --loop)
       LOOP=1
@@ -216,52 +252,144 @@ normalize_phone() {
   esac
 }
 
-# send_via_imessage tries iMessage first; if that fails (e.g. the recipient
-# is on Android and can't receive iMessage) it falls back to the Mac's SMS
-# service, the same way Messages.app's own "Send as Text Message" button
-# does. That SMS service only exists when this Mac has Text Message
-# Forwarding turned on from a paired iPhone (iPhone: Settings > Messages >
-# Text Message Forwarding); without it there's no fallback and iMessage's
-# failure is the final result. On success prints "imessage" or "sms" to
-# stdout so the caller can record which channel was actually used.
+# send_through_service pushes one message out over exactly one service —
+# "imessage" or "sms" — and fails if that service isn't available or `send`
+# errors. It deliberately does NOT decide anything about retries; choosing
+# the channel is deliver_text's job below, in bash, where the logic is
+# readable and testable rather than buried in an AppleScript error handler.
 #
-# Only failures that `send` itself raises are caught — see the header comment
-# for why a late, silent delivery failure can't be detected from AppleScript.
-send_via_imessage() {
-  local phone="$1" body="$2"
+# `send` is the last statement, so any error means the message did not go
+# out. Nothing here can double-send.
+send_through_service() {
+  local phone="$1" body="$2" channel="$3"
+  # osascript's stderr goes to ERR_FILE (set per-text by drain_once) rather
+  # than the caller redirecting deliver_text wholesale — otherwise this
+  # script's own warnings, including "verification is OFF", would be captured
+  # into a file that's only printed on failure and would never be seen.
+  #
   # The leading "-" tells osascript to read the script from stdin; without it,
   # osascript treats the first positional argument after the heredoc as a
   # script *filename* and fails with "No such file or directory".
-  osascript - "$phone" "$body" <<'APPLESCRIPT'
+  osascript - "$phone" "$body" "$channel" 2>>"${ERR_FILE:-/dev/stderr}" <<'APPLESCRIPT'
 on run argv
   set thePhone to item 1 of argv
   set theBody to item 2 of argv
+  set wantSMS to (item 3 of argv is "sms")
   tell application "Messages"
-    try
-      -- `send` is deliberately the LAST statement in this block. Every error
-      -- the handler below can see is therefore one that happened before the
-      -- message went out, so the SMS retry can never duplicate a message that
-      -- iMessage already delivered.
+    -- `service type = SMS` only matches when this Mac has Text Message
+    -- Forwarding turned on from a paired iPhone (iPhone: Settings >
+    -- Messages > Text Message Forwarding). Without it the lookup below
+    -- errors, which is the caller's signal that there's no SMS route.
+    if wantSMS then
+      set targetService to 1st service whose service type = SMS
+    else
       set targetService to 1st service whose service type = iMessage
-      set targetBuddy to participant thePhone of targetService
-      send theBody to targetBuddy
-      return "imessage"
-    on error iMessageErr
-      try
-        set smsService to 1st service whose service type = SMS
-        set smsBuddy to participant thePhone of smsService
-        send theBody to smsBuddy
-        return "sms"
-      on error
-        -- No SMS fallback available (Text Message Forwarding not enabled) —
-        -- surface the original iMessage error, since that's the one that
-        -- actually explains the failure to a user checking logs.
-        error iMessageErr
-      end try
-    end try
+    end if
+    set targetBuddy to participant thePhone of targetService
+    send theBody to targetBuddy
   end tell
 end run
 APPLESCRIPT
+}
+
+# --- delivery verification via chat.db --------------------------------------
+# Messages.app's AppleScript interface cannot tell us whether a message
+# actually landed (see the header comment). Its SQLite store can: every
+# message row carries an `error` code that Messages sets when delivery fails,
+# which is the same signal behind the red "Not Delivered" badge in the UI.
+#
+# This is read-only and needs Full Disk Access on whatever runs this script.
+# When it isn't available we warn ONCE and fall back to trusting `send` —
+# loudly, because the whole point of this machinery is that a silent
+# "everything's fine" is exactly the failure mode we're trying to kill.
+
+CHAT_DB="$HOME/Library/Messages/chat.db"
+VERIFY_WARNED=0
+
+chat_db_query() {
+  # -readonly so we can never write to the user's message store. Errors are
+  # swallowed here and surfaced as "can't verify" by the callers.
+  sqlite3 -readonly "file:$CHAT_DB?mode=ro" "$1" 2>/dev/null
+}
+
+verification_available() {
+  [ "$VERIFY" -eq 1 ] || return 1
+  if [ ! -r "$CHAT_DB" ] || [ -z "$(chat_db_query 'SELECT 1;')" ]; then
+    if [ "$VERIFY_WARNED" -eq 0 ]; then
+      VERIFY_WARNED=1
+      echo "  ! Cannot read $CHAT_DB — delivery verification is OFF." >&2
+      echo "  !   Grant Full Disk Access to this terminal (System Settings >" >&2
+      echo "  !   Privacy & Security > Full Disk Access), or pass --no-verify" >&2
+      echo "  !   to silence this. Silent iMessage failures will be recorded" >&2
+      echo "  !   as 'sent' until then." >&2
+    fi
+    return 1
+  fi
+  return 0
+}
+
+# Baseline taken immediately BEFORE sending, so we can find the row we just
+# created without matching on message text — `text` is NULL on modern macOS
+# for many rows (the body lives in attributedBody as encoded data instead).
+chat_db_baseline() {
+  chat_db_query 'SELECT COALESCE(MAX(ROWID), 0) FROM message;'
+}
+
+# imessage_failed polls for our new outgoing row and reports whether Messages
+# flagged it. Returns 0 (shell-true) ONLY on a definite failure — an unknown
+# or still-pending result is deliberately not treated as failure, so we never
+# double-send on a slow-but-fine delivery.
+imessage_failed() {
+  # $phone is interpolated into SQL, which is only safe because it comes from
+  # normalize_phone, which strips everything outside [0-9+] — there is no way
+  # for a quote to survive that. Keep it that way if normalize_phone changes.
+  local baseline="$1" phone="$2" deadline err
+  deadline=$(( $(date +%s) + DELIVERY_WAIT ))
+  while :; do
+    err="$(chat_db_query "
+      SELECT COALESCE(m.error, 0)
+      FROM message m
+      JOIN handle h ON m.handle_id = h.ROWID
+      WHERE m.ROWID > $baseline AND m.is_from_me = 1 AND h.id = '$phone'
+      ORDER BY m.ROWID DESC LIMIT 1;")"
+    [ -n "$err" ] && [ "$err" != "0" ] && return 0
+    [ "$(date +%s)" -ge "$deadline" ] && return 1
+    sleep 1
+  done
+}
+
+# deliver_text owns the channel decision: iMessage first, SMS when iMessage
+# either refuses up front or is verified to have failed. Prints the channel
+# that actually carried the message ("imessage" or "sms") on stdout.
+deliver_text() {
+  local phone="$1" body="$2"
+  local baseline="" verify=0
+
+  if verification_available; then
+    verify=1
+    baseline="$(chat_db_baseline)"
+    [ -z "$baseline" ] && verify=0
+  fi
+
+  if send_through_service "$phone" "$body" "imessage"; then
+    if [ "$verify" -eq 1 ] && imessage_failed "$baseline" "$phone"; then
+      # iMessage accepted the send and then failed to deliver. The dead
+      # message stays in the thread as "Not Delivered" — that's Messages'
+      # own UI and we can't retract it — but the guest still gets the text.
+      echo "     iMessage reported not delivered — retrying over SMS" >&2
+      send_through_service "$phone" "$body" "sms" || return 1
+      echo "sms"
+      return 0
+    fi
+    echo "imessage"
+    return 0
+  fi
+
+  # iMessage refused up front (the common Android case: Messages already
+  # knows the handle isn't iMessage-capable). Nothing was sent, so an SMS
+  # retry here cannot duplicate anything.
+  send_through_service "$phone" "$body" "sms" || return 1
+  echo "sms"
 }
 
 drain_once() {
@@ -307,9 +435,10 @@ drain_once() {
     normalized="$(normalize_phone "$phone")"
 
     echo "  -> #$id to $first $last ($normalized)"
-    local err_file via
-    err_file="$(mktemp)"
-    if via="$(send_via_imessage "$normalized" "$content" 2>"$err_file")"; then
+    local via
+    ERR_FILE="$(mktemp)"
+    local err_file="$ERR_FILE"
+    if via="$(deliver_text "$normalized" "$content")"; then
       report_status "$id" "sent" "" "$via"
       echo "     sent via $via"
     else

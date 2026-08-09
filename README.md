@@ -50,13 +50,18 @@ Text Message Forwarding to be enabled from a paired iPhone (iPhone: Settings > M
 Text Message Forwarding) — without it there's no SMS service on the Mac and those texts
 are just reported failed for manual resend.
 
-That fallback only covers failures Messages reports immediately — the usual Android case,
-where it already knows the number isn't iMessage-capable. It does **not** catch a silent
-failure, where the send appears to succeed and delivery fails a moment later over the
-network; those are recorded as `sent` and need a manual resend. Messages.app's AppleScript
-interface exposes no sent-message object to check, so there's nothing to inspect from the
-script; the only real source of delivery state is `~/Library/Messages/chat.db`, which needs
-Full Disk Access and isn't wired up here.
+Two different failures get caught. If Messages refuses the send outright — it already knows
+the number isn't iMessage-capable — the SMS retry happens immediately. If Messages *accepts*
+the send and delivery fails seconds later (the red "Not Delivered" badge), the script notices
+that too and resends over SMS.
+
+Catching the second case needs **Full Disk Access**, because the only place that failure is
+visible is Messages' own database at `~/Library/Messages/chat.db` — its AppleScript interface
+exposes no sent-message object to ask. Grant it to whichever terminal runs the script under
+System Settings → Privacy & Security → Full Disk Access. Without it the script still runs and
+still does the immediate-failure fallback, but it prints a warning on every batch and silent
+failures will be recorded as `sent`. `--delivery-wait N` controls how long it watches each
+message (default 8s); `--no-verify` turns the check off deliberately.
 
 Do not run this alongside a backend that has `TWILIO_*` configured — the Twilio worker and
 this script would race for the same queue. The first run may need you to grant your
