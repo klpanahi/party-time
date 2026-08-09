@@ -86,6 +86,9 @@ Options:
   --api URL           Backend base URL (default: http://localhost:8080).
   -h, --help          Show this help.
 
+The dry run also reports whether delivery verification is working, so you
+can confirm Full Disk Access is granted before committing to a real --send.
+
 Examples:
   ./imessage_sender.sh                  # dry run, show what's pending
   ./imessage_sender.sh --send           # send everything pending, once
@@ -299,33 +302,83 @@ APPLESCRIPT
 # which is the same signal behind the red "Not Delivered" badge in the UI.
 #
 # This is read-only and needs Full Disk Access on whatever runs this script.
-# When it isn't available we warn ONCE and fall back to trusting `send` —
-# loudly, because the whole point of this machinery is that a silent
-# "everything's fine" is exactly the failure mode we're trying to kill.
+# When it isn't available we fall back to trusting `send` — but loudly, and
+# only after saying so up front, because the whole point of this machinery is
+# that a silent "everything's fine" is exactly the failure mode being killed.
 
 CHAT_DB="$HOME/Library/Messages/chat.db"
-VERIFY_WARNED=0
+VERIFY_OK=0
 
 chat_db_query() {
   # -readonly so we can never write to the user's message store. Errors are
-  # swallowed here and surfaced as "can't verify" by the callers.
+  # swallowed here; probe_verification is what reports them, once, up front.
   sqlite3 -readonly "file:$CHAT_DB?mode=ro" "$1" 2>/dev/null
 }
 
-verification_available() {
-  [ "$VERIFY" -eq 1 ] || return 1
-  if [ ! -r "$CHAT_DB" ] || [ -z "$(chat_db_query 'SELECT 1;')" ]; then
-    if [ "$VERIFY_WARNED" -eq 0 ]; then
-      VERIFY_WARNED=1
-      echo "  ! Cannot read $CHAT_DB — delivery verification is OFF." >&2
-      echo "  !   Grant Full Disk Access to this terminal (System Settings >" >&2
-      echo "  !   Privacy & Security > Full Disk Access), or pass --no-verify" >&2
-      echo "  !   to silence this. Silent iMessage failures will be recorded" >&2
-      echo "  !   as 'sent' until then." >&2
-    fi
-    return 1
+# probe_verification decides once, at startup, whether the delivery check can
+# work, and sets VERIFY_OK. It runs in dry-run mode too — the whole point is
+# to surface a Full Disk Access or schema problem BEFORE a --send run claims
+# rows and discovers mid-batch that it can't verify anything.
+#
+# The probe is a real query, not a [ -r ] test: under TCC the file stats
+# fine and fails at open(), so only actually opening it proves anything.
+# LIMIT 0 makes SQLite resolve every table and column we depend on without
+# returning a single row of message data.
+probe_verification() {
+  local out
+  if [ "$VERIFY" -eq 0 ]; then
+    echo "Delivery verification: OFF (--no-verify). Silent iMessage failures"
+    echo "  will be recorded as 'sent'."
+    return
   fi
-  return 0
+
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo "Delivery verification: OFF — sqlite3 not found on PATH." >&2
+    return
+  fi
+
+  # Must be an `if` condition, not a bare assignment: under `set -e` a failing
+  # command substitution in an assignment kills the script outright, so the
+  # error branch below would never be reached on the very failure it exists
+  # to report.
+  if out="$(sqlite3 -readonly "file:$CHAT_DB?mode=ro" \
+    'SELECT m.ROWID, m.error, m.is_from_me, m.handle_id, h.id
+     FROM message m JOIN handle h ON m.handle_id = h.ROWID LIMIT 0;' 2>&1)"; then
+    VERIFY_OK=1
+    echo "Delivery verification: ON (chat.db readable, watching ${DELIVERY_WAIT}s per send)."
+    return
+  fi
+
+  echo "Delivery verification: OFF — cannot query $CHAT_DB" >&2
+  echo "  sqlite3: $out" >&2
+  case "$out" in
+    *"authorization denied"*|*"unable to open database"*|*"not authorized"*)
+      # Don't assume TCC: the same sqlite3 error covers a genuinely absent
+      # file. Note that a stat failure isn't proof of absence either — macOS
+      # hides protected paths from processes it hasn't granted, so an
+      # unreadable chat.db can look exactly like a missing one.
+      if [ -e "$CHAT_DB" ]; then
+        echo "  The file is there but can't be opened, which is macOS Full Disk" >&2
+        echo "  Access. Grant it to the terminal running this script: System" >&2
+        echo "  Settings > Privacy & Security > Full Disk Access, then restart" >&2
+        echo "  that terminal." >&2
+      else
+        echo "  Nothing visible at that path. Either Messages has never run on" >&2
+        echo "  this Mac, or macOS is hiding the file from this process — which" >&2
+        echo "  is what a Full Disk Access denial looks like. Grant it under" >&2
+        echo "  System Settings > Privacy & Security > Full Disk Access and" >&2
+        echo "  restart the terminal; if the path is still missing after that," >&2
+        echo "  it genuinely isn't there." >&2
+      fi
+      ;;
+    *"no such table"*|*"no such column"*)
+      echo "  chat.db exists but its schema isn't what this script expects —" >&2
+      echo "  Apple changed it. The query in imessage_failed needs updating." >&2
+      ;;
+  esac
+  echo "  Sends will still work and immediate failures still fall back to SMS," >&2
+  echo "  but a silent iMessage failure will be recorded as 'sent'." >&2
+  echo "  Pass --no-verify to accept that and silence this." >&2
 }
 
 # Baseline taken immediately BEFORE sending, so we can find the row we just
@@ -346,12 +399,14 @@ imessage_failed() {
   local baseline="$1" phone="$2" deadline err
   deadline=$(( $(date +%s) + DELIVERY_WAIT ))
   while :; do
+    # `|| true` inside the substitution: without it, a transient sqlite3
+    # failure would trip `set -e` and kill the run with rows still claimed.
     err="$(chat_db_query "
       SELECT COALESCE(m.error, 0)
       FROM message m
       JOIN handle h ON m.handle_id = h.ROWID
       WHERE m.ROWID > $baseline AND m.is_from_me = 1 AND h.id = '$phone'
-      ORDER BY m.ROWID DESC LIMIT 1;")"
+      ORDER BY m.ROWID DESC LIMIT 1;" || true)"
     [ -n "$err" ] && [ "$err" != "0" ] && return 0
     [ "$(date +%s)" -ge "$deadline" ] && return 1
     sleep 1
@@ -365,9 +420,13 @@ deliver_text() {
   local phone="$1" body="$2"
   local baseline="" verify=0
 
-  if verification_available; then
+  # VERIFY_OK was settled by probe_verification at startup, so a permissions
+  # or schema problem has already been reported once rather than per text.
+  if [ "$VERIFY_OK" -eq 1 ]; then
     verify=1
-    baseline="$(chat_db_baseline)"
+    baseline="$(chat_db_baseline || true)"
+    # No baseline means no safe way to identify our row; skip the check for
+    # this text rather than risk matching someone else's message.
     [ -z "$baseline" ] && verify=0
   fi
 
@@ -465,6 +524,11 @@ drain_once() {
     sleep "$RATE"
   done < <(echo "$resp" | jq -c '.[]')
 }
+
+# Runs in dry-run mode too, so `./imessage_sender.sh` on its own tells you
+# whether a real --send would be able to verify deliveries.
+probe_verification
+echo ""
 
 if [ "$LOOP" -eq 1 ]; then
   echo "Polling every ${LOOP_INTERVAL}s (Ctrl-C to stop)..."

@@ -59,9 +59,17 @@ Catching the second case needs **Full Disk Access**, because the only place that
 visible is Messages' own database at `~/Library/Messages/chat.db` — its AppleScript interface
 exposes no sent-message object to ask. Grant it to whichever terminal runs the script under
 System Settings → Privacy & Security → Full Disk Access. Without it the script still runs and
-still does the immediate-failure fallback, but it prints a warning on every batch and silent
-failures will be recorded as `sent`. `--delivery-wait N` controls how long it watches each
-message (default 8s); `--no-verify` turns the check off deliberately.
+still does the immediate-failure fallback, but silent failures will be recorded as `sent`.
+`--delivery-wait N` controls how long it watches each message (default 8s); `--no-verify`
+turns the check off deliberately.
+
+The **dry run checks this for you** — it opens the database before doing anything, so a plain
+`./imessage_sender.sh` tells you whether a real `--send` would be able to verify deliveries,
+and distinguishes a Full Disk Access denial from Apple having changed the schema:
+
+```
+Delivery verification: ON (chat.db readable, watching 8s per send).
+```
 
 Do not run this alongside a backend that has `TWILIO_*` configured — the Twilio worker and
 this script would race for the same queue. The first run may need you to grant your
