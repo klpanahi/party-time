@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText, cancelEvent, deleteEvent } from '../api'
+import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText, setTextStatus, cancelEvent, deleteEvent } from '../api'
 import { toDatetimeLocal, formatDateShort } from '../dateUtils'
 
 const STATUS_LABELS = {
@@ -369,7 +369,8 @@ export default function EventDetails() {
 function MessagesTab({ texts, error, onReload }) {
   const [expanded, setExpanded] = useState(new Set())
   const [resendingId, setResendingId] = useState(null)
-  const [resendError, setResendError] = useState(null)
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null)
+  const [actionError, setActionError] = useState(null)
 
   function toggle(id) {
     setExpanded((prev) => {
@@ -381,14 +382,36 @@ function MessagesTab({ texts, error, onReload }) {
 
   async function handleResend(id) {
     setResendingId(id)
-    setResendError(null)
+    setActionError(null)
     try {
       await resendText(id)
       await onReload()
     } catch (e) {
-      setResendError(e.message)
+      setActionError(e.message)
     } finally {
       setResendingId(null)
+    }
+  }
+
+  // The sender marks a text 'sent' even when it can't prove delivery, so an
+  // admin needs to be able to correct any row — including setting it back to
+  // 'pending', which is how a single recipient gets re-sent.
+  async function handleStatusChange(text, status) {
+    if (status === text.status) return
+    // A row the sender is mid-delivery on will be sent twice if we requeue it.
+    if (text.status === 'sending' &&
+        !window.confirm('This message is currently being sent. Changing its status now may cause a duplicate message. Continue?')) {
+      return
+    }
+    setStatusUpdatingId(text.id)
+    setActionError(null)
+    try {
+      await setTextStatus(text.id, status)
+      await onReload()
+    } catch (e) {
+      setActionError(e.message)
+    } finally {
+      setStatusUpdatingId(null)
     }
   }
 
@@ -405,7 +428,7 @@ function MessagesTab({ texts, error, onReload }) {
 
   return (
     <section className="card">
-      {resendError && <div className="error-banner">{resendError}</div>}
+      {actionError && <div className="error-banner">{actionError}</div>}
       <table className="table">
         <thead>
           <tr>
@@ -425,6 +448,19 @@ function MessagesTab({ texts, error, onReload }) {
                 <td className="mono">{t.phone_number}</td>
                 <td><TextStatusBadge status={t.status} /></td>
                 <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  <select
+                    className="status-select"
+                    style={{ marginRight: 8 }}
+                    aria-label={`Status for ${t.first_name} ${t.last_name}`}
+                    value={t.status}
+                    disabled={statusUpdatingId === t.id}
+                    onChange={(e) => handleStatusChange(t, e.target.value)}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="sending">Sending</option>
+                    <option value="sent">Sent</option>
+                    <option value="failed">Failed</option>
+                  </select>
                   {t.status === 'failed' && (
                     <button
                       className="btn-ghost btn-sm"
@@ -465,6 +501,7 @@ function MessagesTab({ texts, error, onReload }) {
 function TextStatusBadge({ status }) {
   const cls = {
     'pending': 'badge-none',
+    'sending': 'badge-tentative',
     'sent':    'badge-accepted',
     'failed':  'badge-declined',
   }[status] || 'badge-none'

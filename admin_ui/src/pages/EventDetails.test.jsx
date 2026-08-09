@@ -165,6 +165,44 @@ describe('EventDetails', () => {
     await screen.findByText(/resend failed/i)
   })
 
+  it('overriding a sent text to pending saves the new status and refreshes', async () => {
+    const sent = [{ ...defaultTexts[0], status: 'sent' }]
+    const pending = [{ ...defaultTexts[0], status: 'pending' }]
+    let body
+    server.use(
+      http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(sent), { once: true }),
+      http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(pending)),
+      http.put(`${BASE}/texts/:id/status`, async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ ok: true })
+      }),
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith')
+
+    await userEvent.selectOptions(screen.getByLabelText(/status for alice smith/i), 'pending')
+
+    await screen.findByText('pending')
+    expect(body).toEqual({ status: 'pending' })
+  })
+
+  it('shows an error banner when a status override fails', async () => {
+    server.use(
+      http.put(`${BASE}/texts/:id/status`, () =>
+        HttpResponse.json({ error: 'override failed' }, { status: 500 }),
+      ),
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+    await screen.findByText('Alice Smith')
+
+    await userEvent.selectOptions(screen.getByLabelText(/status for alice smith/i), 'failed')
+    await screen.findByText(/override failed/i)
+  })
+
   it('Send button is disabled when the message textarea is empty', async () => {
     renderDetails()
     await screen.findByDisplayValue('Summer Party')

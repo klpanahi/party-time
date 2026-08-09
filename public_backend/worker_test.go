@@ -360,3 +360,91 @@ func TestReportTextStatus(t *testing.T) {
 		assertStatus(t, w, 400)
 	})
 }
+
+// TestOverrideTextStatus covers PUT /admin/texts/:id/status, the admin override
+// that — unlike the POST sender callback above — ignores the row's current
+// status entirely.
+func TestOverrideTextStatus(t *testing.T) {
+	// markSent puts a text in the state the iMessage sender leaves behind when it
+	// wrongly believes delivery succeeded: sent, with a provider and a timestamp.
+	markSent := func(t *testing.T, id int64) {
+		t.Helper()
+		if _, err := testDB.Exec(
+			`UPDATE texts SET status = 'sent', sent_at = now(), provider_sid = 'imessage' WHERE id = $1`, id,
+		); err != nil {
+			t.Fatalf("seed sent: %v", err)
+		}
+	}
+
+	t.Run("forces a sent text to failed with a reason", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Mira", "Kell", "+15555550206")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "hi")
+		markSent(t, textID)
+
+		w := do(t, r, "PUT", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "failed", "error": "never arrived"})
+		assertStatus(t, w, 200)
+
+		row := getText(t, textID)
+		if row.Status != "failed" {
+			t.Errorf("status = %q, want failed", row.Status)
+		}
+		if row.Error == nil || *row.Error != "never arrived" {
+			t.Errorf("error = %v, want \"never arrived\"", row.Error)
+		}
+	})
+
+	t.Run("requeuing a sent text clears the previous delivery attempt", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Noor", "Ade", "+15555550207")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "hi")
+		markSent(t, textID)
+
+		w := do(t, r, "PUT", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "pending"})
+		assertStatus(t, w, 200)
+
+		row := getText(t, textID)
+		if row.Status != "pending" {
+			t.Errorf("status = %q, want pending", row.Status)
+		}
+		if row.SentAt != nil || row.ProviderSid != nil || row.Error != nil {
+			t.Errorf("stale attempt left on row: sent_at=%v provider_sid=%v error=%v",
+				row.SentAt, row.ProviderSid, row.Error)
+		}
+
+		// The whole point of requeuing: the external sender now picks it back up.
+		var claimed []PendingText
+		cw := do(t, r, "GET", "/admin/texts/pending", nil)
+		assertStatus(t, cw, 200)
+		mustDecode(t, cw, &claimed)
+		if len(claimed) != 1 || claimed[0].ID != int(textID) {
+			t.Fatalf("claimed = %+v, want the requeued text %d", claimed, textID)
+		}
+	})
+
+	t.Run("rejects an invalid status value", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Omar", "Reyes", "+15555550208")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, contactID, eventID, "hi")
+
+		w := do(t, r, "PUT", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "bogus"})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("404s on an unknown text", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+
+		w := do(t, r, "PUT", "/admin/texts/999999/status", map[string]string{"status": "pending"})
+		assertStatus(t, w, 404)
+	})
+}

@@ -181,6 +181,21 @@ body {
 .form input:focus,
 .form textarea:focus { border-color: var(--primary); }
 
+/* Inline status override on message rows. Matches .form input, but sized to sit
+   next to the row's buttons rather than fill a form column. */
+.status-select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  font-family: inherit;
+}
+.status-select:focus { border-color: var(--primary); }
+.status-select:disabled { opacity: .6; }
+
 .checkbox-label {
   flex-direction: row !important;
   align-items: center;

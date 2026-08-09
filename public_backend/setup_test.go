@@ -104,6 +104,7 @@ func newRouter() *gin.Engine {
 	admin.POST("/texts/:id/resend", testEnv.adminResendText)
 	admin.GET("/texts/pending", testEnv.adminClaimPendingTexts)
 	admin.POST("/texts/:id/status", testEnv.adminReportTextStatus)
+	admin.PUT("/texts/:id/status", testEnv.adminOverrideTextStatus)
 	return r
 }
 

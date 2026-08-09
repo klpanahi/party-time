@@ -27,3 +27,4 @@ export const sendMessage = (eventId, content) => request('POST', `/events/${even
 export const launchEvent = (eventId) => request('POST', `/events/${eventId}/launch`)
 export const getTexts = (eventId) => request('GET', `/events/${eventId}/texts`)
 export const resendText = (textId) => request('POST', `/texts/${textId}/resend`)
+export const setTextStatus = (textId, status) => request('PUT', `/texts/${textId}/status`, { status })
