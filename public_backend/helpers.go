@@ -27,6 +27,31 @@ func parseCentralTime(s string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02T15:04:05", s, loc)
 }
 
+// parseEventWindow parses an event's start and end datetime-local strings and
+// checks that the event does not end before it starts. The returned errors are
+// safe to hand straight to the client. Parse failures are logged as well as
+// returned, because parseCentralTime also fails when the timezone database is
+// unavailable, which is not a client error.
+func parseEventWindow(dateStr, endStr string) (time.Time, time.Time, error) {
+	date, err := parseCentralTime(dateStr)
+	if err != nil {
+		fmt.Println("parseCentralTime:", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid date format, expected YYYY-MM-DDTHH:MM")
+	}
+
+	endTime, err := parseCentralTime(endStr)
+	if err != nil {
+		fmt.Println("parseCentralTime:", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid end_time format, expected YYYY-MM-DDTHH:MM")
+	}
+
+	if !endTime.After(date) {
+		return time.Time{}, time.Time{}, fmt.Errorf("end_time must be after date")
+	}
+
+	return date, endTime, nil
+}
+
 func loaddbconfig() string {
 	user := getenv("DBUSER", "myuser")
 	password := getenv("DBPASS", "mypassword")

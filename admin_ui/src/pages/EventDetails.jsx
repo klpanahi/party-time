@@ -42,7 +42,7 @@ export default function EventDetails() {
     getEvent(id)
       .then((data) => setDetail({
         ...data,
-        event: { ...data.event, date: toDatetimeLocal(data.event.date) },
+        event: { ...data.event, end_time: toDatetimeLocal(data.event.end_time), date: toDatetimeLocal(data.event.date) },
       }))
       .catch((e) => setError(e.message))
   }, [id])
@@ -63,6 +63,7 @@ export default function EventDetails() {
         await updateEvent(id, {
           name: updatedEvent.name,
           date: updatedEvent.date,
+          end_time: updatedEvent.end_time,
           description: updatedEvent.description,
           location: updatedEvent.location,
           plus_ones_allowed: updatedEvent.plus_ones_allowed,
@@ -87,7 +88,7 @@ export default function EventDetails() {
     const fresh = await getEvent(id)
     setDetail({
       ...fresh,
-      event: { ...fresh.event, date: toDatetimeLocal(fresh.event.date) },
+      event: { ...fresh.event, end_time: toDatetimeLocal(fresh.event.end_time), date: toDatetimeLocal(fresh.event.date) },
     })
     setShowAddInvitee(false)
   }
@@ -250,6 +251,10 @@ export default function EventDetails() {
           <label>Date &amp; Time
             <input type="datetime-local" value={event.date} disabled={canceled}
               onChange={(e) => updateField('date', e.target.value)} />
+          </label>
+          <label>End Time
+            <input type="datetime-local" value={event.end_time} disabled={canceled}
+              onChange={(e) => updateField('end_time', e.target.value)} />
           </label>
           <label>Location
             <input value={event.location} disabled={canceled} onChange={(e) => updateField('location', e.target.value)} />

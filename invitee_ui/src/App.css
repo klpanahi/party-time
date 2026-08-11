@@ -159,6 +159,50 @@ body {
 .rsvp-btn.rsvp-tentative:not(.selected):hover { border-color: #fcd34d; background: #fffef5; }
 .rsvp-btn.rsvp-declined:not(.selected):hover  { border-color: #fca5a5; background: #fffafa; }
 
+/* Add to calendar */
+.calendar-section {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calendar-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.calendar-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.calendar-btn:hover { border-color: #93c5fd; background: #f8fbff; }
+.calendar-btn:active { transform: scale(.98); }
+
+.calendar-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.calendar-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+}
+
 /* Plus ones */
 .guests-section {
   padding: 24px 28px;

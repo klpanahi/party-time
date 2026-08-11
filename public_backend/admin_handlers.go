@@ -150,19 +150,16 @@ func (env *Env) adminCreateEvent(c *gin.Context) {
 		return
 	}
 
-	date, err := parseCentralTime(req.Date)
+	date, endTime, err := parseEventWindow(req.Date, req.EndTime)
 	if err != nil {
-		// Logged because this also fires when the timezone database is
-		// unavailable, which is not a client error.
-		fmt.Println("parseCentralTime:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, expected YYYY-MM-DDTHH:MM"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	var id int
-	sql := `INSERT INTO events (name, date, description, location, plus_ones_allowed)
-	        VALUES ($1, $2, $3, $4, $5) RETURNING id`
-	if err := env.db.QueryRow(sql, req.Name, date, req.Description, req.Location, req.PlusOnesAllowed).Scan(&id); err != nil {
+	sql := `INSERT INTO events (name, date, end_time, description, location, plus_ones_allowed)
+	        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	if err := env.db.QueryRow(sql, req.Name, date, endTime, req.Description, req.Location, req.PlusOnesAllowed).Scan(&id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -183,17 +180,14 @@ func (env *Env) adminUpdateEvent(c *gin.Context) {
 		return
 	}
 
-	date, err := parseCentralTime(req.Date)
+	date, endTime, err := parseEventWindow(req.Date, req.EndTime)
 	if err != nil {
-		// Logged because this also fires when the timezone database is
-		// unavailable, which is not a client error.
-		fmt.Println("parseCentralTime:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, expected YYYY-MM-DDTHH:MM"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	sql := `UPDATE events SET name=$1, date=$2, description=$3, location=$4, plus_ones_allowed=$5 WHERE id=$6`
-	if _, err := env.db.Exec(sql, req.Name, date, req.Description, req.Location, req.PlusOnesAllowed, id); err != nil {
+	sql := `UPDATE events SET name=$1, date=$2, end_time=$3, description=$4, location=$5, plus_ones_allowed=$6 WHERE id=$7`
+	if _, err := env.db.Exec(sql, req.Name, date, endTime, req.Description, req.Location, req.PlusOnesAllowed, id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

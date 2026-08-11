@@ -261,13 +261,37 @@ describe('EventDetails', () => {
     await screen.findByDisplayValue('Summer Party')
 
     vi.useFakeTimers()
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-15T18:00' } })
+    fireEvent.change(screen.getByLabelText(/date & time/i), { target: { value: '2026-08-15T18:00' } })
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000)
     })
 
     expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
+  it('changing the end time auto-saves it alongside the start', async () => {
+    let body
+    server.use(
+      http.put(`${BASE}/events/:id`, async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+
+    vi.useFakeTimers()
+    fireEvent.change(screen.getByLabelText(/end time/i), { target: { value: '2026-08-15T23:00' } })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+    expect(body.end_time).toBe('2026-08-15T23:00')
+    // The start time still rides along on the same PUT, which replaces every field.
+    expect(body.date).toBeTruthy()
   })
 
   it('changing the description field triggers auto-save', async () => {

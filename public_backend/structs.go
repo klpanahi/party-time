@@ -14,6 +14,7 @@ type Event struct {
 	ID                string    `db:"id"               json:"id"`
 	Event_Name        string    `db:"name"             json:"name"`
 	Date              time.Time `db:"date"             json:"date"`
+	EndTime           time.Time `db:"end_time"         json:"end_time"`
 	Description       string    `db:"description"      json:"description"`
 	Location          string    `db:"location"         json:"location"`
 	Plus_Ones_Allowed bool      `db:"plus_ones_allowed" json:"plus_ones_allowed"`
@@ -64,6 +65,7 @@ type EventDetail struct {
 type CreateEventRequest struct {
 	Name            string `json:"name"             binding:"required"`
 	Date            string `json:"date"             binding:"required"`
+	EndTime         string `json:"end_time"         binding:"required"`
 	Description     string `json:"description"      binding:"required"`
 	Location        string `json:"location"         binding:"required"`
 	PlusOnesAllowed bool   `json:"plus_ones_allowed"`
@@ -72,6 +74,7 @@ type CreateEventRequest struct {
 type UpdateEventRequest struct {
 	Name            string `json:"name"`
 	Date            string `json:"date"`
+	EndTime         string `json:"end_time"`
 	Description     string `json:"description"`
 	Location        string `json:"location"`
 	PlusOnesAllowed bool   `json:"plus_ones_allowed"`
@@ -106,6 +109,7 @@ type InvitePageData struct {
 	LastName         string `db:"last_name"         json:"last_name"`
 	EventName        string `db:"event_name"        json:"event_name"`
 	EventDate        time.Time `db:"event_date"      json:"event_date"`
+	EventEndTime     time.Time `db:"event_end_time"  json:"event_end_time"`
 	EventDescription string `db:"event_description" json:"event_description"`
 	EventLocation    string `db:"event_location"    json:"event_location"`
 	PlusOnesAllowed  bool   `db:"plus_ones_allowed" json:"plus_ones_allowed"`
