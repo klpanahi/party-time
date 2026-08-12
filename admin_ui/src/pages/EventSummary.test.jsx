@@ -67,16 +67,39 @@ describe('EventSummary', () => {
   })
 
   it('submits the create form and navigates to the new event', async () => {
+    let body
+    server.use(
+      http.post(`${BASE}/events`, async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ id: 'new-event-id' })
+      })
+    )
     renderSummary()
     await screen.findByText('Summer Party')
     await userEvent.click(screen.getByRole('button', { name: /create event/i }))
 
     await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Birthday Bash')
-    await userEvent.type(screen.getByLabelText(/date/i), '2026-12-25T18:00')
+    await userEvent.type(screen.getByLabelText(/date & time/i), '2026-12-25T18:00')
+    await userEvent.type(screen.getByLabelText(/end time/i), '2026-12-25T22:00')
     await userEvent.type(screen.getByRole('textbox', { name: /location/i }), 'My House')
     await userEvent.click(screen.getByRole('button', { name: /^create$/i }))
 
     await screen.findByText('Event Details Page')
+    expect(body.date).toBe('2026-12-25T18:00')
+    expect(body.end_time).toBe('2026-12-25T22:00')
+  })
+
+  it('will not submit the create form without an end time', async () => {
+    renderSummary()
+    await screen.findByText('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /create event/i }))
+
+    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Birthday Bash')
+    await userEvent.type(screen.getByLabelText(/date & time/i), '2026-12-25T18:00')
+    await userEvent.type(screen.getByRole('textbox', { name: /location/i }), 'My House')
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(screen.getByRole('heading', { name: /new event/i })).toBeInTheDocument()
   })
 
   it('shows a Canceled badge for a canceled event', async () => {

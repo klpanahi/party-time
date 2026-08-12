@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import {
+  buildICS,
+  buildGoogleCalendarUrl,
+  hasCalendarData,
+  icsFilename,
+} from '../calendarLinks'
 
 const BASE = ''
 
@@ -120,6 +126,13 @@ export default function InvitePage() {
           )}
         </div>
 
+        {!isCanceled && !isPast && hasCalendarData(invite) && (
+          <>
+            <hr className="divider" />
+            <AddToCalendar invite={invite} />
+          </>
+        )}
+
         <hr className="divider" />
 
         {isCanceled ? (
@@ -213,6 +226,41 @@ export default function InvitePage() {
           </>
         )}
 
+      </div>
+    </div>
+  )
+}
+
+function AddToCalendar({ invite }) {
+  function downloadICS() {
+    const blob = new Blob([buildICS(invite)], { type: 'text/calendar;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = icsFilename(invite)
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="calendar-section">
+      <p className="section-label">Add to calendar</p>
+      <div className="calendar-buttons">
+        <button type="button" className="calendar-btn" onClick={downloadICS}>
+          <span className="calendar-icon">📅</span>
+          <span className="calendar-label">Apple / Outlook</span>
+        </button>
+        <a
+          className="calendar-btn"
+          href={buildGoogleCalendarUrl(invite)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span className="calendar-icon">🗓️</span>
+          <span className="calendar-label">Google Calendar</span>
+        </a>
       </div>
     </div>
   )

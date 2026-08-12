@@ -5,9 +5,11 @@ export const BASE = 'http://localhost:3000'
 
 export const defaultInvite = {
   id: INVITE_ID,
+  invite_id: INVITE_ID,
   first_name: 'Alex',
   event_name: 'Birthday Bash',
   event_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 1 week from now
+  event_end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 3 * 60 * 60 * 1000).toISOString(),
   event_location: '123 Party Lane',
   event_description: 'Come celebrate!',
   plus_ones_allowed: true,

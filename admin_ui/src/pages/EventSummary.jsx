@@ -13,7 +13,7 @@ export default function EventSummary() {
   const [error, setError] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({
-    name: '', date: '', description: '', location: '', plus_ones_allowed: false,
+    name: '', date: '', end_time: '', description: '', location: '', plus_ones_allowed: false,
   })
   const [creating, setCreating] = useState(false)
 
@@ -59,6 +59,10 @@ export default function EventSummary() {
               <label>Date &amp; Time
                 <input required type="datetime-local" value={form.date}
                   onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </label>
+              <label>End Time
+                <input required type="datetime-local" value={form.end_time}
+                  onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
               </label>
               <label>Description
                 <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />

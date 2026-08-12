@@ -27,11 +27,11 @@ INSERT INTO contacts (first_name, last_name, phone_number) VALUES
 --   Spring Fling      : launched, past      (historical event, mixed RSVPs)
 --   Empty Draft Mixer : draft,    upcoming  (no invitees — cannot be launched)
 -- ---------------------------------------------------------------------------
-INSERT INTO events (name, date, description, location, plus_ones_allowed, status) VALUES
-  ('Summer BBQ Bash',   NOW() + INTERVAL '21 days', 'Burgers, lawn games, and live music in the backyard.', '742 Evergreen Terrace', true,  'launched'),
-  ('New Year''s Gala',  NOW() + INTERVAL '180 days', 'Black-tie countdown party with champagne toast.',      'The Grand Ballroom',    true,  'draft'),
-  ('Spring Fling',      NOW() - INTERVAL '30 days', 'Last season''s garden party.',                          'Riverside Park',        false, 'launched'),
-  ('Empty Draft Mixer', NOW() + INTERVAL '45 days', 'Casual networking mixer — still drafting the list.',    'Downtown Loft',         true,  'draft');
+INSERT INTO events (name, date, end_time, description, location, plus_ones_allowed, status) VALUES
+  ('Summer BBQ Bash',   NOW() + INTERVAL '21 days',  NOW() + INTERVAL '21 days'  + INTERVAL '4 hours', 'Burgers, lawn games, and live music in the backyard.', '742 Evergreen Terrace', true,  'launched'),
+  ('New Year''s Gala',  NOW() + INTERVAL '180 days', NOW() + INTERVAL '180 days' + INTERVAL '5 hours', 'Black-tie countdown party with champagne toast.',      'The Grand Ballroom',    true,  'draft'),
+  ('Spring Fling',      NOW() - INTERVAL '30 days',  NOW() - INTERVAL '30 days'  + INTERVAL '3 hours', 'Last season''s garden party.',                          'Riverside Park',        false, 'launched'),
+  ('Empty Draft Mixer', NOW() + INTERVAL '45 days',  NOW() + INTERVAL '45 days'  + INTERVAL '2 hours', 'Casual networking mixer — still drafting the list.',    'Downtown Loft',         true,  'draft');
 
 -- ---------------------------------------------------------------------------
 -- Invites — cover every RSVP state, opened/unopened, and additional guests.

@@ -35,6 +35,7 @@ export const defaultEvent = {
     id: EVENT_ID,
     name: 'Summer Party',
     date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 3 * 60 * 60 * 1000).toISOString(),
     location: 'Central Park',
     description: 'A great outdoor party.',
     plus_ones_allowed: true,

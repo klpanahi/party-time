@@ -165,8 +165,8 @@ func seedEvent(t *testing.T, name string, date time.Time, status string) int {
 	t.Helper()
 	var id int
 	err := testDB.QueryRow(
-		`INSERT INTO events (name, date, description, location, plus_ones_allowed, status)
-		 VALUES ($1, $2, 'Test description', 'Test venue', true, $3) RETURNING id`,
+		`INSERT INTO events (name, date, end_time, description, location, plus_ones_allowed, status)
+		 VALUES ($1, $2::timestamptz, $2::timestamptz + INTERVAL '3 hours', 'Test description', 'Test venue', true, $3) RETURNING id`,
 		name, date, status,
 	).Scan(&id)
 	if err != nil {

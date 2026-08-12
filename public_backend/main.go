@@ -134,6 +134,7 @@ func (env *Env) getInviteByID(c *gin.Context) {
 			c.first_name, c.last_name,
 			e.name        AS event_name,
 			e.date        AS event_date,
+			e.end_time    AS event_end_time,
 			e.description AS event_description,
 			e.location    AS event_location,
 			e.plus_ones_allowed,

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { server } from '../test/msw/server'
 import { BASE, defaultInvite, INVITE_ID } from '../test/msw/handlers'
 import InvitePage from './InvitePage'
@@ -183,5 +183,93 @@ describe('InvitePage', () => {
     renderInvite()
     await screen.findByText('Hi Alex! 👋')
     expect(screen.queryByText('Who else is invited')).not.toBeInTheDocument()
+  })
+
+  describe('add to calendar', () => {
+    it('offers both calendar targets for an upcoming event', async () => {
+      renderInvite()
+      await screen.findByText('Add to calendar')
+      expect(screen.getByRole('button', { name: /apple \/ outlook/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /google calendar/i })).toBeInTheDocument()
+    })
+
+    it('points the Google link at a prefilled template with the event window', async () => {
+      renderInvite()
+      await screen.findByText('Add to calendar')
+      const url = new URL(screen.getByRole('link', { name: /google calendar/i }).href)
+      expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render')
+      expect(url.searchParams.get('text')).toBe('Birthday Bash')
+      expect(url.searchParams.get('location')).toBe('123 Party Lane')
+      expect(url.searchParams.get('dates')).toMatch(/^\d{8}T\d{6}Z\/\d{8}T\d{6}Z$/)
+    })
+
+    it('opens the Google link safely in a new tab', async () => {
+      renderInvite()
+      await screen.findByText('Add to calendar')
+      const link = screen.getByRole('link', { name: /google calendar/i })
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('downloads a .ics file named after the event', async () => {
+      // jsdom implements neither of these.
+      const createObjectURL = vi.fn(() => 'blob:calendar')
+      const revokeObjectURL = vi.fn()
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }))
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+        expect(this.download).toBe('birthday-bash.ics')
+        expect(this.href).toBe('blob:calendar')
+      })
+
+      renderInvite()
+      await screen.findByText('Add to calendar')
+      await userEvent.click(screen.getByRole('button', { name: /apple \/ outlook/i }))
+
+      expect(click).toHaveBeenCalledTimes(1)
+      expect(createObjectURL).toHaveBeenCalledTimes(1)
+      // The object URL is released rather than leaked.
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:calendar')
+      // No stray anchor is left behind in the document.
+      expect(document.querySelectorAll('a[download]')).toHaveLength(0)
+
+      click.mockRestore()
+      vi.unstubAllGlobals()
+    })
+
+    it('is hidden for a past event', async () => {
+      server.use(
+        http.get(`${BASE}/invite/:id`, () =>
+          HttpResponse.json({
+            ...defaultInvite,
+            event_date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          })
+        )
+      )
+      renderInvite()
+      await screen.findByText(/already taken place/i)
+      expect(screen.queryByText('Add to calendar')).not.toBeInTheDocument()
+    })
+
+    it('is hidden for a canceled event', async () => {
+      server.use(
+        http.get(`${BASE}/invite/:id`, () =>
+          HttpResponse.json({ ...defaultInvite, event_status: 'canceled' })
+        )
+      )
+      renderInvite()
+      await screen.findByText(/this event has been canceled/i)
+      expect(screen.queryByText('Add to calendar')).not.toBeInTheDocument()
+    })
+
+    it('is hidden when the event has no usable end time', async () => {
+      server.use(
+        http.get(`${BASE}/invite/:id`, () =>
+          HttpResponse.json({ ...defaultInvite, event_end_time: null })
+        )
+      )
+      renderInvite()
+      await screen.findByText('Hi Alex! 👋')
+      expect(screen.queryByText('Add to calendar')).not.toBeInTheDocument()
+    })
   })
 })

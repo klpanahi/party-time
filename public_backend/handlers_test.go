@@ -113,6 +113,7 @@ func TestEvents(t *testing.T) {
 		w := do(t, r, "POST", "/admin/events", map[string]any{
 			"name":             "Summer Party",
 			"date":             "2099-07-04T18:00",
+			"end_time":         "2099-07-04T22:00",
 			"description":      "Big summer bash",
 			"location":         "The Backyard",
 			"plus_ones_allowed": true,
@@ -168,6 +169,7 @@ func TestEvents(t *testing.T) {
 		w := do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
 			"name":             "New Name",
 			"date":             "2099-08-01T19:00",
+			"end_time":         "2099-08-01T23:30",
 			"description":      "Updated",
 			"location":         "New Venue",
 			"plus_ones_allowed": false,
@@ -189,6 +191,7 @@ func TestEvents(t *testing.T) {
 		w := do(t, r, "POST", "/admin/events", map[string]any{
 			"name":        "Seconds Party",
 			"date":        "2099-07-04T18:00:30",
+			"end_time":    "2099-07-04T21:00:30",
 			"description": "Test",
 			"location":    "Venue",
 		})
@@ -200,6 +203,7 @@ func TestEvents(t *testing.T) {
 		w := do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
 			"name":        "Seconds Update",
 			"date":        "2099-09-01T09:30:00",
+			"end_time":    "2099-09-01T14:30:00",
 			"description": "Updated",
 			"location":    "New Venue",
 		})
@@ -210,10 +214,90 @@ func TestEvents(t *testing.T) {
 		w := do(t, r, "POST", "/admin/events", map[string]any{
 			"name":        "Bad Date",
 			"date":        "not-a-date",
+			"end_time":    "2099-07-04T21:00",
 			"description": "x",
 			"location":    "y",
 		})
 		assertStatus(t, w, 400)
+	})
+
+	t.Run("invalid end_time returns 400", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events", map[string]any{
+			"name":        "Bad End",
+			"date":        "2099-07-04T18:00",
+			"end_time":    "not-a-date",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("missing end_time returns 400", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events", map[string]any{
+			"name":        "No End",
+			"date":        "2099-07-04T18:00",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("end_time before date returns 400", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events", map[string]any{
+			"name":        "Backwards",
+			"date":        "2099-07-04T18:00",
+			"end_time":    "2099-07-04T17:00",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("end_time equal to date returns 400", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events", map[string]any{
+			"name":        "Zero Length",
+			"date":        "2099-07-04T18:00",
+			"end_time":    "2099-07-04T18:00",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("end_time round-trips through create and update", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/events", map[string]any{
+			"name":        "Windowed",
+			"date":        "2099-07-04T18:00",
+			"end_time":    "2099-07-04T22:00",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 201)
+		var resp map[string]any
+		mustDecode(t, w, &resp)
+		eventID := int(resp["id"].(float64))
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		var detail EventDetail
+		mustDecode(t, w, &detail)
+		if got := detail.Event.EndTime.Sub(detail.Event.Date); got != 4*time.Hour {
+			t.Errorf("event window = %v, want 4h", got)
+		}
+
+		w = do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
+			"name":        "Windowed",
+			"date":        "2099-07-04T18:00",
+			"end_time":    "2099-07-04T20:30",
+			"description": "x",
+			"location":    "y",
+		})
+		assertStatus(t, w, 200)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		mustDecode(t, w, &detail)
+		if got := detail.Event.EndTime.Sub(detail.Event.Date); got != 150*time.Minute {
+			t.Errorf("updated event window = %v, want 2h30m", got)
+		}
 	})
 }
 
@@ -567,6 +651,10 @@ func TestGetInvite(t *testing.T) {
 		if resp.EventName != "Leo's Party" {
 			t.Errorf("event_name = %q, want Leo's Party", resp.EventName)
 		}
+		// The invite page builds calendar entries from this, so it has to be served.
+		if got := resp.EventEndTime.Sub(resp.EventDate); got != 3*time.Hour {
+			t.Errorf("event window = %v, want 3h", got)
+		}
 	})
 
 	t.Run("stamps opened_at on first GET", func(t *testing.T) {
@@ -912,8 +1000,8 @@ func TestCancelEvent(t *testing.T) {
 			map[string]any{"content": "off"})
 
 		w := do(t, r, "PUT", fmt.Sprintf("/admin/events/%d", eventID), map[string]any{
-			"name": "Renamed", "date": "2030-01-01T18:00", "description": "d",
-			"location": "l", "plus_ones_allowed": true,
+			"name": "Renamed", "date": "2030-01-01T18:00", "end_time": "2030-01-01T21:00",
+			"description": "d", "location": "l", "plus_ones_allowed": true,
 		})
 		assertStatus(t, w, 409)
 
