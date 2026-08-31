@@ -124,6 +124,15 @@ export default function InvitePage() {
           {invite.event_description && (
             <DetailRow icon="📝" text={invite.event_description} />
           )}
+          {invite.plus_ones_allowed && !isPast && !isCanceled && (
+            <div className="detail-row">
+              <span className="detail-icon">👥</span>
+              <span className="detail-text">
+                <strong className="plus-ones-lead">Plus ones welcome.</strong>{' '}
+                Bring as many guests as you like — just add them below.
+              </span>
+            </div>
+          )}
         </div>
 
         {!isCanceled && !isPast && hasCalendarData(invite) && (
@@ -168,7 +177,12 @@ export default function InvitePage() {
               <>
                 <hr className="divider" />
                 <div className="guests-section">
-                  <p className="section-label">Additional guests</p>
+                  <div className="guests-heading">
+                    <p className="section-label">Additional guests</p>
+                    <p className="guests-hint">
+                      How many people are you bringing? Tap + once for each one.
+                    </p>
+                  </div>
                   <div className="guest-counter">
                     <button
                       className="counter-btn"
