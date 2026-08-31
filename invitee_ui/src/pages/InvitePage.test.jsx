@@ -69,6 +69,48 @@ describe('InvitePage', () => {
     expect(screen.queryByText('Additional guests')).not.toBeInTheDocument()
   })
 
+  it('calls out that plus ones are welcome when plus_ones_allowed is true', async () => {
+    renderInvite()
+    await screen.findByText('Hi Alex! 👋')
+    expect(screen.getByText(/plus ones welcome/i)).toBeInTheDocument()
+    expect(screen.getByText(/as many guests as you like/i)).toBeInTheDocument()
+  })
+
+  it('shows no plus-ones callout when plus_ones_allowed is false', async () => {
+    server.use(
+      http.get(`${BASE}/invite/:id`, () =>
+        HttpResponse.json({ ...defaultInvite, plus_ones_allowed: false })
+      )
+    )
+    renderInvite()
+    await screen.findByText('Hi Alex! 👋')
+    expect(screen.queryByText(/plus ones welcome/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps the plus-ones callout visible after the invitee declines', async () => {
+    renderInvite()
+    await screen.findByText('Hi Alex! 👋')
+    await userEvent.click(screen.getByRole('button', { name: /can't make it/i }))
+    expect(screen.getByText(/plus ones welcome/i)).toBeInTheDocument()
+  })
+
+  it('hides the plus-ones callout for a past event', async () => {
+    server.use(
+      http.get(`${BASE}/invite/:id`, () =>
+        HttpResponse.json({ ...defaultInvite, event_date: '2020-01-01T18:00:00Z' })
+      )
+    )
+    renderInvite()
+    await screen.findByText('Hi Alex! 👋')
+    expect(screen.queryByText(/plus ones welcome/i)).not.toBeInTheDocument()
+  })
+
+  it('explains that more than one guest can be added', async () => {
+    renderInvite()
+    await screen.findByText('Hi Alex! 👋')
+    expect(screen.getByText(/tap \+ once for each one/i)).toBeInTheDocument()
+  })
+
   it('shows "Response Sent!" after clicking an RSVP option', async () => {
     renderInvite()
     await screen.findByText('Hi Alex! 👋')
