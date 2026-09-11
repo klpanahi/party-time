@@ -161,6 +161,23 @@ func seedContact(t *testing.T, firstName, lastName, phone string) int {
 	return id
 }
 
+// seedContactWithType is seedContact for the cases that care which channel the
+// contact is texted on. seedContact leaves message_type at its column default
+// ('imessage'), which is what most tests want.
+func seedContactWithType(t *testing.T, firstName, lastName, phone, messageType string) int {
+	t.Helper()
+	var id int
+	err := testDB.QueryRow(
+		`INSERT INTO contacts (first_name, last_name, phone_number, message_type)
+		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		firstName, lastName, phone, messageType,
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("seedContactWithType: %v", err)
+	}
+	return id
+}
+
 func seedEvent(t *testing.T, name string, date time.Time, status string) int {
 	t.Helper()
 	var id int

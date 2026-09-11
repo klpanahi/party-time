@@ -68,6 +68,52 @@ func TestContacts(t *testing.T) {
 		if list[0].FirstName != "Alice" || list[0].PhoneNumber != "5550001111" {
 			t.Errorf("unexpected contact: %+v", list[0])
 		}
+		// Neither field was supplied on create, so both should come back at
+		// their defaults rather than absent or null.
+		if list[0].MessageType != "imessage" {
+			t.Errorf("message_type = %q, want the imessage default", list[0].MessageType)
+		}
+		if list[0].Notes != "" {
+			t.Errorf("notes = %q, want empty", list[0].Notes)
+		}
+	})
+
+	t.Run("create stores notes and message type", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/contacts", map[string]any{
+			"first_name":   "Sam",
+			"phone_number": "5550003333",
+			"message_type": "sms",
+			"notes":        "Android phone — iMessage never lands",
+		})
+		assertStatus(t, w, 201)
+
+		w = do(t, r, "GET", "/admin/contacts", nil)
+		var list []Contact
+		mustDecode(t, w, &list)
+		var found *Contact
+		for i := range list {
+			if list[i].PhoneNumber == "5550003333" {
+				found = &list[i]
+			}
+		}
+		if found == nil {
+			t.Fatal("created contact not returned")
+		}
+		if found.MessageType != "sms" {
+			t.Errorf("message_type = %q, want sms", found.MessageType)
+		}
+		if found.Notes != "Android phone — iMessage never lands" {
+			t.Errorf("notes = %q", found.Notes)
+		}
+	})
+
+	t.Run("create with unknown message type returns 400", func(t *testing.T) {
+		w := do(t, r, "POST", "/admin/contacts", map[string]any{
+			"first_name":   "Bad",
+			"phone_number": "5550004444",
+			"message_type": "carrier-pigeon",
+		})
+		assertStatus(t, w, 400)
 	})
 
 	t.Run("update contact", func(t *testing.T) {
@@ -76,21 +122,39 @@ func TestContacts(t *testing.T) {
 			"first_name":   "Robert",
 			"last_name":    "Jones",
 			"phone_number": "5550002222",
+			"message_type": "sms",
+			"notes":        "Prefers a heads up the day before",
 		})
 		assertStatus(t, w, 200)
 
 		w = do(t, r, "GET", "/admin/contacts", nil)
 		var list []Contact
 		mustDecode(t, w, &list)
-		var found bool
-		for _, c := range list {
-			if c.ID == contactID && c.FirstName == "Robert" {
-				found = true
+		var found *Contact
+		for i := range list {
+			if list[i].ID == contactID {
+				found = &list[i]
 			}
 		}
-		if !found {
-			t.Error("updated contact not found or name not changed")
+		if found == nil {
+			t.Fatal("updated contact not found")
 		}
+		if found.FirstName != "Robert" {
+			t.Errorf("first_name = %q, want Robert", found.FirstName)
+		}
+		if found.MessageType != "sms" || found.Notes != "Prefers a heads up the day before" {
+			t.Errorf("notes/message_type not persisted: %+v", *found)
+		}
+	})
+
+	t.Run("update with unknown message type returns 400", func(t *testing.T) {
+		contactID := seedContact(t, "Nope", "Nope", "5550005555")
+		w := do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", contactID), map[string]any{
+			"first_name":   "Nope",
+			"phone_number": "5550005555",
+			"message_type": "fax",
+		})
+		assertStatus(t, w, 400)
 	})
 
 	t.Run("missing phone returns 400", func(t *testing.T) {

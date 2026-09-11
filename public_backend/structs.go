@@ -30,6 +30,12 @@ type Contact struct {
 	FirstName   string `db:"first_name"   json:"first_name"`
 	LastName    string `db:"last_name"    json:"last_name"`
 	PhoneNumber string `db:"phone_number" json:"phone_number"`
+	// Notes is private to the administrator — it is only ever served from the
+	// /admin/contacts endpoints, never to invitees or the sender script.
+	Notes string `db:"notes" json:"notes"`
+	// MessageType is the channel this contact is texted on, "imessage" or "sms".
+	// The external sender reads it instead of discovering the channel itself.
+	MessageType string `db:"message_type" json:"message_type"`
 }
 
 type InviteWithContact struct {
@@ -154,14 +160,18 @@ type TextWithContact struct {
 
 // PendingText is a queued text handed to an external sender (the iMessage
 // companion script). It carries everything needed to deliver the message
-// without a second round trip: the body, the recipient's phone, and their name
-// for display in the sender's log.
+// without a second round trip: the body, the recipient's phone, the channel to
+// send it over, and their name for display in the sender's log.
+//
+// The contact's private notes are deliberately absent — the sender has no use
+// for them.
 type PendingText struct {
 	ID          int    `db:"id"           json:"id"`
 	Content     string `db:"content"      json:"content"`
 	PhoneNumber string `db:"phone_number" json:"phone_number"`
 	FirstName   string `db:"first_name"   json:"first_name"`
 	LastName    string `db:"last_name"    json:"last_name"`
+	MessageType string `db:"message_type" json:"message_type"`
 }
 
 // TextStatusRequest is an external sender reporting the outcome of a text it

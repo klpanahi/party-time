@@ -10,15 +10,17 @@
 -- (contacts.phone_number is UNIQUE; events by name) rather than hardcoded ids.
 
 -- ---------------------------------------------------------------------------
--- Contacts — includes a single-name contact (empty last name) edge case.
+-- Contacts — includes a single-name contact (empty last name) edge case, one
+-- contact on the SMS channel, and private admin notes, so the Contacts page and
+-- the iMessage sender both have each state to exercise.
 -- ---------------------------------------------------------------------------
-INSERT INTO contacts (first_name, last_name, phone_number) VALUES
-  ('Alice',   'Anderson', '+15125550101'),
-  ('Bob',     'Brown',    '+15125550102'),
-  ('Carol',   'Clark',    '+15125550103'),
-  ('Dan',     'Davis',    '+15125550104'),
-  ('Erin',    'Evans',    '+15125550105'),
-  ('Madonna', '',         '+15125550106');
+INSERT INTO contacts (first_name, last_name, phone_number, message_type, notes) VALUES
+  ('Alice',   'Anderson', '+15125550101', 'imessage', ''),
+  ('Bob',     'Brown',    '+15125550102', 'sms',      'Android phone — iMessage never lands'),
+  ('Carol',   'Clark',    '+15125550103', 'imessage', ''),
+  ('Dan',     'Davis',    '+15125550104', 'imessage', 'Vegetarian, brings the good speakers'),
+  ('Erin',    'Evans',    '+15125550105', 'imessage', ''),
+  ('Madonna', '',         '+15125550106', 'imessage', '');
 
 -- ---------------------------------------------------------------------------
 -- Events — one of each meaningful state.

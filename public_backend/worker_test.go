@@ -239,6 +239,11 @@ func TestClaimPendingTexts(t *testing.T) {
 			if pt.PhoneNumber != "+15555550200" {
 				t.Errorf("phone_number = %q, want +15555550200", pt.PhoneNumber)
 			}
+			// The sender picks its channel from this, so it must never come
+			// back empty.
+			if pt.MessageType != "imessage" {
+				t.Errorf("message_type = %q, want imessage", pt.MessageType)
+			}
 		}
 
 		if getText(t, id1).Status != "sending" {
@@ -266,6 +271,29 @@ func TestClaimPendingTexts(t *testing.T) {
 		}
 		if getText(t, textID).Status != "pending" {
 			t.Error("peek must not change status")
+		}
+		if got[0].MessageType != "imessage" {
+			t.Errorf("message_type = %q, want imessage", got[0].MessageType)
+		}
+	})
+
+	t.Run("carries the contact's message type", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		smsContact := seedContactWithType(t, "Ivo", "Park", "+15555550202", "sms")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		seedText(t, smsContact, eventID, "text an android")
+
+		w := do(t, r, "GET", "/admin/texts/pending", nil)
+		assertStatus(t, w, 200)
+
+		var got []PendingText
+		mustDecode(t, w, &got)
+		if len(got) != 1 {
+			t.Fatalf("got %d texts, want 1", len(got))
+		}
+		if got[0].MessageType != "sms" {
+			t.Errorf("message_type = %q, want sms", got[0].MessageType)
 		}
 	})
 

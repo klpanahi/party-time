@@ -10,6 +10,8 @@ contacts
   first_name    varchar NULL
   last_name     varchar NULL
   phone_number  varchar NOT NULL UNIQUE
+  notes         text NOT NULL DEFAULT ''          -- admin-only; never served to invitees or the sender
+  message_type  varchar NOT NULL DEFAULT 'imessage' -- 'imessage' | 'sms'; the channel the sender uses
 
 events
   id                bigint IDENTITY PK
@@ -18,7 +20,10 @@ events
   description       varchar NOT NULL
   location          varchar NOT NULL
   plus_ones_allowed bool NOT NULL
-  status            varchar DEFAULT 'draft'   -- 'draft' | 'launched'
+  end_time          TIMESTAMPTZ NOT NULL
+  status            varchar DEFAULT 'draft'   -- 'draft'|'launched'|'canceled'|'deleted'
+  canceled_at       TIMESTAMPTZ NULL
+  deleted_at        TIMESTAMPTZ NULL          -- 'deleted' is a soft delete; the row stays
 
 invites
   id                uuid DEFAULT gen_random_uuid() PK
@@ -40,7 +45,7 @@ texts
   event_id      bigint → events.id
   status        varchar DEFAULT 'pending'   -- 'pending'|'sending'|'sent'|'failed'
   content       TEXT NULL                  -- set for invite texts; NULL means use message.content
-  provider_sid  varchar NULL               -- Twilio Message SID, set on send
+  provider_sid  varchar NULL               -- Twilio Message SID, or the channel when sent by imessage_sender.sh
   error         varchar NULL               -- failure reason when status='failed'
   sent_at       TIMESTAMPTZ NULL           -- set when Twilio accepts the message
   created_at    TIMESTAMPTZ DEFAULT NOW()
