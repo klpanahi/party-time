@@ -57,8 +57,23 @@ export const defaultEvent = {
 }
 
 export const defaultContacts = [
-  { id: CONTACT_ID, first_name: 'Alice', last_name: 'Smith', phone_number: '+15550001111' },
-  { id: 'contact-def', first_name: 'Bob', last_name: 'Jones', phone_number: '+15550002222' },
+  {
+    id: CONTACT_ID,
+    first_name: 'Alice',
+    last_name: 'Smith',
+    phone_number: '+15550001111',
+    message_type: 'imessage',
+    notes: '',
+  },
+  // Bob covers the other channel and a non-empty notes field.
+  {
+    id: 'contact-def',
+    first_name: 'Bob',
+    last_name: 'Jones',
+    phone_number: '+15550002222',
+    message_type: 'sms',
+    notes: 'Android — iMessage never lands',
+  },
 ]
 
 export const defaultTexts = [

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { getContacts, createContact, updateContact } from '../api'
 
+// How each contact gets texted. The sender script reads message_type straight
+// off the contact instead of trying iMessage and falling back, so this is the
+// switch you flip when an iMessage never reaches someone.
+const MESSAGE_TYPE_LABELS = { imessage: 'iMessage', sms: 'SMS' }
+
 export default function Contacts() {
   const [contacts, setContacts] = useState([])
   const [error, setError] = useState(null)
@@ -59,6 +64,8 @@ export default function Contacts() {
                   <th>First Name</th>
                   <th>Last Name</th>
                   <th>Phone</th>
+                  <th>Message Type</th>
+                  <th>Notes</th>
                   <th></th>
                 </tr>
               </thead>
@@ -68,6 +75,8 @@ export default function Contacts() {
                     <td>{c.first_name}</td>
                     <td>{c.last_name || <span className="text-muted">—</span>}</td>
                     <td className="mono">{c.phone_number}</td>
+                    <td>{MESSAGE_TYPE_LABELS[c.message_type] ?? c.message_type}</td>
+                    <td className="notes-cell">{c.notes || <span className="text-muted">—</span>}</td>
                     <td className="action-cell">
                       <button className="btn-ghost btn-sm" onClick={() => setEditing(c)}>Edit</button>
                     </td>
@@ -86,6 +95,8 @@ function ContactModal({ title, initial = {}, onSave, onClose }) {
     first_name: initial.first_name || '',
     last_name: initial.last_name || '',
     phone_number: initial.phone_number || '',
+    message_type: initial.message_type || 'imessage',
+    notes: initial.notes || '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -119,6 +130,18 @@ function ContactModal({ title, initial = {}, onSave, onClose }) {
           <label>Phone Number
             <input required value={form.phone_number}
               onChange={(e) => setForm({ ...form, phone_number: e.target.value })} />
+          </label>
+          <label>Message Type
+            <select value={form.message_type}
+              onChange={(e) => setForm({ ...form, message_type: e.target.value })}>
+              {Object.entries(MESSAGE_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>Notes
+            <textarea rows={3} value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </label>
           <div className="form-actions">
             <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>

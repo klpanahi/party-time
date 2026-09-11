@@ -39,37 +39,27 @@ instead — useful for local/free testing. It claims pending rows over HTTP
 outcome back (`POST /admin/texts/:id/status`) so nothing is double-sent or left stuck.
 
 ```
-./imessage_sender.sh           # dry run — show what's pending, sends nothing
-./imessage_sender.sh --send    # claim and actually deliver via iMessage
+./imessage_sender.sh           # dry run — show what's pending and how it'd be sent
+./imessage_sender.sh --send    # claim and actually deliver
 ./imessage_sender.sh --send --loop   # keep polling and sending
 ```
 
-Recipients who can't receive iMessage (e.g. Android) are retried automatically over SMS,
-the same fallback Messages.app's own "Send as Text Message" button uses. That requires
-Text Message Forwarding to be enabled from a paired iPhone (iPhone: Settings > Messages >
-Text Message Forwarding) — without it there's no SMS service on the Mac and those texts
-are just reported failed for manual resend.
+**The channel comes from the contact, not from the script.** Every contact has a message
+type of `iMessage` or `SMS`, set on the Contacts page in the admin UI; new contacts start
+on iMessage. The claim endpoint returns it with each pending text and the script sends over
+exactly that service — one attempt, no fallback, no retry. A failed send is reported
+`failed` and shows up on the event's Messages tab.
 
-Two different failures get caught. If Messages refuses the send outright — it already knows
-the number isn't iMessage-capable — the SMS retry happens immediately. If Messages *accepts*
-the send and delivery fails seconds later (the red "Not Delivered" badge), the script notices
-that too and resends over SMS.
+Contacts set to `SMS` need Text Message Forwarding enabled from a paired iPhone (iPhone:
+Settings > Messages > Text Message Forwarding). Without it this Mac has no SMS service and
+those texts are reported failed.
 
-Catching the second case needs **Full Disk Access**, because the only place that failure is
-visible is Messages' own database at `~/Library/Messages/chat.db` — its AppleScript interface
-exposes no sent-message object to ask. Grant it to whichever terminal runs the script under
-System Settings → Privacy & Security → Full Disk Access. Without it the script still runs and
-still does the immediate-failure fallback, but silent failures will be recorded as `sent`.
-`--delivery-wait N` controls how long it watches each message (default 8s); `--no-verify`
-turns the check off deliberately.
-
-The **dry run checks this for you** — it opens the database before doing anything, so a plain
-`./imessage_sender.sh` tells you whether a real `--send` would be able to verify deliveries,
-and distinguishes a Full Disk Access denial from Apple having changed the schema:
-
-```
-Delivery verification: ON (chat.db readable, watching 8s per send).
-```
+One failure the script cannot see: Messages sometimes accepts a send and then fails to
+deliver it seconds later (the red "Not Delivered" badge). Nothing in its AppleScript
+interface exposes that, so the text is recorded as `sent`. When you notice a guest never
+got their invite, the fix is two steps in the admin UI: switch that contact to **SMS** on
+the Contacts page, then use the status override on the event's Messages tab to put the text
+back to `pending`. The next drain resends it over SMS.
 
 Do not run this alongside a backend that has `TWILIO_*` configured — the Twilio worker and
 this script would race for the same queue. The first run may need you to grant your

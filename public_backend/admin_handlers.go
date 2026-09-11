@@ -20,20 +20,58 @@ func (env *Env) adminGetContacts(c *gin.Context) {
 	c.JSON(http.StatusOK, contacts)
 }
 
-func (env *Env) adminCreateContact(c *gin.Context) {
-	var req struct {
-		FirstName   string `json:"first_name"   binding:"required"`
-		LastName    string `json:"last_name"`
-		PhoneNumber string `json:"phone_number" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+// contactRequest is the create and update body for a contact. message_type and
+// notes are optional so a client that predates them still works: an omitted
+// message_type means the default channel.
+type contactRequest struct {
+	FirstName   string `json:"first_name"   binding:"required"`
+	LastName    string `json:"last_name"`
+	PhoneNumber string `json:"phone_number" binding:"required"`
+	Notes       string `json:"notes"`
+	MessageType string `json:"message_type"`
+}
+
+// defaultMessageType matches the column default in the migration. New contacts
+// start on iMessage; an admin moves them to SMS once iMessage proves not to
+// reach them.
+const defaultMessageType = "imessage"
+
+// validMessageTypes is every channel the external sender knows how to deliver
+// over. Checked in the handler as well as by the DB constraint so a bad value
+// comes back as a 400 rather than a constraint violation surfacing as a 500.
+var validMessageTypes = map[string]bool{
+	"imessage": true,
+	"sms":      true,
+}
+
+// bindContact parses and validates a contact body, normalizing an omitted
+// message_type to the default. Writes the response and reports false on a bad
+// request, so callers just return.
+func bindContact(c *gin.Context, req *contactRequest) bool {
+	if err := c.ShouldBindJSON(req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return false
+	}
+	if req.MessageType == "" {
+		req.MessageType = defaultMessageType
+	}
+	if !validMessageTypes[req.MessageType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "message_type must be 'imessage' or 'sms'"})
+		return false
+	}
+	return true
+}
+
+func (env *Env) adminCreateContact(c *gin.Context) {
+	var req contactRequest
+	if !bindContact(c, &req) {
 		return
 	}
 
 	var id int
-	sql := `INSERT INTO contacts (first_name, last_name, phone_number) VALUES ($1, $2, $3) RETURNING id`
-	if err := env.db.QueryRow(sql, req.FirstName, req.LastName, req.PhoneNumber).Scan(&id); err != nil {
+	sql := `INSERT INTO contacts (first_name, last_name, phone_number, notes, message_type)
+	        VALUES ($1, $2, $3, $4, $5) RETURNING id`
+	if err := env.db.QueryRow(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType).Scan(&id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -44,18 +82,13 @@ func (env *Env) adminCreateContact(c *gin.Context) {
 func (env *Env) adminUpdateContact(c *gin.Context) {
 	id := c.Param("id")
 
-	var req struct {
-		FirstName   string `json:"first_name"   binding:"required"`
-		LastName    string `json:"last_name"`
-		PhoneNumber string `json:"phone_number" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var req contactRequest
+	if !bindContact(c, &req) {
 		return
 	}
 
-	sql := `UPDATE contacts SET first_name=$1, last_name=$2, phone_number=$3 WHERE id=$4`
-	if _, err := env.db.Exec(sql, req.FirstName, req.LastName, req.PhoneNumber, id); err != nil {
+	sql := `UPDATE contacts SET first_name=$1, last_name=$2, phone_number=$3, notes=$4, message_type=$5 WHERE id=$6`
+	if _, err := env.db.Exec(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType, id); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -550,7 +583,7 @@ func (env *Env) adminClaimPendingTexts(c *gin.Context) {
 	if c.Query("peek") == "true" {
 		sql := `
 			SELECT t.id, COALESCE(t.content, m.content, '') AS content,
-				c.phone_number, c.first_name, c.last_name
+				c.phone_number, c.first_name, c.last_name, c.message_type
 			FROM texts t
 			JOIN contacts c ON c.id = t.contact_id
 			LEFT JOIN messages m ON m.id = t.message_id
@@ -581,7 +614,7 @@ func (env *Env) adminClaimPendingTexts(c *gin.Context) {
 		LEFT JOIN messages m ON m.id = cl.message_id
 		WHERE t.id = cl.id
 		RETURNING t.id, COALESCE(t.content, m.content, '') AS content,
-			c.phone_number, c.first_name, c.last_name`
+			c.phone_number, c.first_name, c.last_name, c.message_type`
 	if err := env.db.Select(&texts, claimSQL, limit); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
