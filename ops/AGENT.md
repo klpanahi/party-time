@@ -28,15 +28,18 @@ Both share one Postgres database.
 | Surface | URL |
 |---|---|
 | Public invitee UI | `https://party-time.panahi-systems.com` |
-| Admin UI | `http://party-time.nginx-internal.local/` |
-| Proxmox | `https://192.168.68.65:8006` |
+| Admin UI | `http://partytime.home.arpa/` (old name `http://party-time.nginx-internal.local/` still answers) |
+| Proxmox | `https://homelab2.home.arpa:8006` |
 
 Both are configurable — see `deploy/hosts.env` in the party-time repo
 (`PARTY_TIME_PUBLIC_URL` / `PARTY_TIME_ADMIN_URL`), consumed by
 `deploy/party-time.yml`, `deploy.sh`, and `ops/healthcheck.sh`. The admin
-hostname is a three-label `.local` name; VM 203 doesn't serve that name by
-default, so the deploy playbook installs a supervised `avahi-publish` alias
-(`party-time-mdns-alias.service`) for it — see hazard 6b below.
+hostname `partytime.home.arpa` is a homelab internal DNS record (served by the
+router VM's dnsmasq at `192.168.68.100`) that points at the router, which
+forwards :80/:443 to nginx-internal. The old three-label `.local` name
+(`PARTY_TIME_ADMIN_LEGACY_HOST`) is kept as a second `server_name`, published by
+a supervised `avahi-publish` alias (`party-time-mdns-alias.service`) — see
+hazard 6b below.
 
 ---
 
@@ -46,9 +49,12 @@ default, so the deploy playbook installs a supervised `avahi-publish` alias
 
 | VM ID | Name | Proxmox tags | IP | Role |
 |---|---|---|---|---|
-| 201 | `nginx-cloudflared` | `ansible`, `nginx`, `cloudflared` | `192.168.68.77` | Public edge. Serves `/var/www/invitee-ui`. Runs the `cloudflared` tunnel for `https://party-time.panahi-systems.com` |
-| 202 | `docker` | `ansible`, `docker` | `192.168.68.78` | Runs the 3 application containers. **2 vCPU / 2 GB RAM / NO SWAP** |
-| 203 | `nginx-internal` | `ansible`, `nginx-internal` | `192.168.68.85` | LAN-only admin UI at `http://party-time.nginx-internal.local/` (mDNS name reachable via SSH as `nginx-internal.local`). Serves `/var/www/admin-ui` |
+| 201 | `nginx-cloudflared` | `ansible`, `nginx`, `cloudflared` | `10.10.10.10` (`nginx-cloudflared.home.arpa`) | Public edge. Serves `/var/www/invitee-ui`. Runs the `cloudflared` tunnel for `https://party-time.panahi-systems.com` |
+| 202 | `docker` | `ansible`, `docker` | `10.10.10.20` (`docker.home.arpa`) | Runs the 3 application containers. **2 vCPU / 2 GB RAM / NO SWAP** |
+| 203 | `nginx-internal` | `ansible`, `nginx-internal` | `10.10.10.40` (`nginx-internal.home.arpa`) | LAN-only admin UI at `http://partytime.home.arpa/`, reached through the router's port forward. Serves `/var/www/admin-ui` |
+
+All three are on the homelab lab subnet `10.10.10.0/24`; their names come from
+homelab `ansible/dns/records.yml`.
 
 ### Containers on VM 202 (`docker`)
 
@@ -72,9 +78,9 @@ PUBLIC
   Cloudflare Tunnel  (cloudflared.service on VM 201)
      |
      v
-  nginx :80  on 192.168.68.77  ── static ──> /var/www/invitee-ui
+  nginx :80  on 10.10.10.10  ── static ──> /var/www/invitee-ui
      |                                        (invitee_ui React SPA)
-     | upstream public_backend -> docker.local:8080     <-- mDNS NAME, not IP
+     | upstream public_backend -> docker.home.arpa:8080   <-- DNS NAME, not IP
      v
   party-time-public  (ADMIN_ENABLED=false)
      |
@@ -83,12 +89,12 @@ PUBLIC
 
 
 ADMIN
-  LAN client
+  LAN client  ->  partytime.home.arpa (192.168.68.100, router :80 forward)
      |
      v
-  nginx :80  on 192.168.68.85  ── static ──> /var/www/admin-ui
+  nginx :80  on 10.10.10.40  ── static ──> /var/www/admin-ui
      |                                        (admin_ui React SPA)
-     | upstream admin_backend -> docker.local:8081      <-- mDNS NAME, not IP
+     | upstream admin_backend -> docker.home.arpa:8081    <-- DNS NAME, not IP
      v
   party-time-admin   (ADMIN_ENABLED=true)
      |
@@ -97,17 +103,20 @@ ADMIN
 ```
 
 > **The single most important fact on this page:** both nginx upstreams reference
-> `docker.local` **by mDNS name**, not by IP. nginx resolves upstream names **once,
-> at config-parse time**. mDNS is the #1 source of outages in this system — see
-> hazards 6 and 7.
+> `docker.home.arpa` **by name**, not by IP. nginx resolves upstream names **once,
+> at config-parse time**, so the nginx VMs must route `home.arpa` to the router
+> (`resolvectl domain` shows `~home.arpa`; homelab `site.yml` sets it). Before the
+> move to internal DNS these were `docker.local` mDNS names, the #1 source of
+> outages — hazards 6 and 7 record that history.
 
 ### Access
 
 ```bash
-ssh ubuntu@192.168.68.78          # by IP
-ssh ubuntu@docker.local           # by mDNS name
-ssh ubuntu@nginx-cloudflared.local
-ssh ubuntu@nginx-internal.local
+ssh ubuntu@docker.home.arpa
+ssh ubuntu@nginx-cloudflared.home.arpa
+ssh ubuntu@nginx-internal.home.arpa
+# From a Mac these need the local route to 10.10.10.0/24 via 192.168.68.100
+# (homelab README). The .local mDNS names still work while avahi runs.
 ```
 
 All VMs share a single SSH key (`~/.ssh/id_ed25519` per `ansible/ansible.cfg`).
@@ -316,7 +325,7 @@ After any deploy, verify explicitly. A killed or timed-out playbook can leave
 ### 1. Container and image age (the authoritative check)
 
 ```bash
-ssh ubuntu@docker.local 'docker ps --format "{{.Names}} {{.Status}}"; docker images party-time-backend --format "{{.ID}} {{.CreatedSince}}"'
+ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}} {{.Status}}"; docker images party-time-backend --format "{{.ID}} {{.CreatedSince}}"'
 ```
 
 Expect three containers `Up` for *seconds/minutes*, and an image `CreatedSince` of
@@ -326,8 +335,8 @@ the playbook output suggested.
 ### 2. nginx is actually running on both edges
 
 ```bash
-ssh ubuntu@nginx-cloudflared.local 'systemctl is-active nginx; sudo nginx -t'
-ssh ubuntu@nginx-internal.local    'systemctl is-active nginx; sudo nginx -t'
+ssh ubuntu@nginx-cloudflared.home.arpa 'systemctl is-active nginx; sudo nginx -t'
+ssh ubuntu@nginx-internal.home.arpa    'systemctl is-active nginx; sudo nginx -t'
 ```
 
 `nginx -t` is the check that catches an unresolvable upstream (hazard 7).
@@ -342,10 +351,10 @@ curl -sI -H 'Accept: text/html' https://party-time.panahi-systems.com/invite/753
 curl -s  -H 'Accept: application/json' https://party-time.panahi-systems.com/invite/75368427-e04f-4a09-9187-60d81d02845b
 
 # Admin UI (dashboard is at the ROOT, not /admin)
-curl -sI http://party-time.nginx-internal.local/
+curl -sI http://partytime.home.arpa/
 
 # Admin API through internal nginx
-curl -s http://party-time.nginx-internal.local/admin/events
+curl -s http://partytime.home.arpa/admin/events
 ```
 
 Both nginx vhosts are a hard cutover: a request with any other `Host` header
@@ -361,7 +370,7 @@ see hazard 5.
 Isolates "backend is broken" from "nginx cannot reach the backend":
 
 ```bash
-ssh ubuntu@docker.local 'curl -s localhost:8080/invites; echo; curl -s localhost:8081/admin/events'
+ssh ubuntu@docker.home.arpa 'curl -s localhost:8080/invites; echo; curl -s localhost:8081/admin/events'
 ```
 
 ---
@@ -372,7 +381,7 @@ The database is `party_time`, and the schema is **`party_time`, not `public`.**
 Unqualified table names will fail unless you set the search path.
 
 ```bash
-ssh ubuntu@docker.local 'source /opt/party-time/.env.prod; docker exec party-time-db psql -U "$DBUSER" -d party_time -c "SELECT id,name,date,status FROM party_time.events;"'
+ssh ubuntu@docker.home.arpa 'source /opt/party-time/.env.prod; docker exec party-time-db psql -U "$DBUSER" -d party_time -c "SELECT id,name,date,status FROM party_time.events;"'
 ```
 
 ### Tables
@@ -388,7 +397,7 @@ ssh ubuntu@docker.local 'source /opt/party-time/.env.prod; docker exec party-tim
 ### Interactive shell
 
 ```bash
-ssh ubuntu@docker.local
+ssh ubuntu@docker.home.arpa
 source /opt/party-time/.env.prod
 docker exec -it party-time-db psql -U "$DBUSER" -d party_time -c 'SET search_path TO party_time;'
 ```
@@ -423,20 +432,20 @@ ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
 ### Restart the application stack without rebuilding
 
 ```bash
-ssh ubuntu@docker.local 'cd /opt/party-time && docker compose -f docker-compose.prod.yml restart'
+ssh ubuntu@docker.home.arpa 'cd /opt/party-time && docker compose -f docker-compose.prod.yml restart'
 ```
 
 ### Tail backend logs
 
 ```bash
-ssh ubuntu@docker.local 'docker logs -f --tail 100 party-time-public'
-ssh ubuntu@docker.local 'docker logs -f --tail 100 party-time-admin'
+ssh ubuntu@docker.home.arpa 'docker logs -f --tail 100 party-time-public'
+ssh ubuntu@docker.home.arpa 'docker logs -f --tail 100 party-time-admin'
 ```
 
 ### Delete a test event (no API route exists)
 
 ```bash
-ssh ubuntu@docker.local 'source /opt/party-time/.env.prod; docker exec party-time-db psql -U "$DBUSER" -d party_time -c "DELETE FROM party_time.invites WHERE event_id=2; DELETE FROM party_time.events WHERE id=2;"'
+ssh ubuntu@docker.home.arpa 'source /opt/party-time/.env.prod; docker exec party-time-db psql -U "$DBUSER" -d party_time -c "DELETE FROM party_time.invites WHERE event_id=2; DELETE FROM party_time.events WHERE id=2;"'
 ```
 
 Delete child rows in `invites`, `messages`, and `texts` first — they carry foreign
@@ -452,7 +461,7 @@ sudo networkctl reconfigure enp6s18          # on the docker VM, if it lost its 
 ### Restart the Cloudflare tunnel
 
 ```bash
-ssh ubuntu@nginx-cloudflared.local 'sudo systemctl restart cloudflared; systemctl is-active cloudflared'
+ssh ubuntu@nginx-cloudflared.home.arpa 'sudo systemctl restart cloudflared; systemctl is-active cloudflared'
 ```
 
 ---
@@ -475,7 +484,7 @@ Symptom: the site is broken.
   |     |
   |     |-- an HTML 502 page                       -> NGINX's own 502.
   |     |                                             nginx is up but cannot reach the backend.
-  |     |                                             Check: docker.local resolution, containers on VM 202.
+  |     |                                             Check: docker.home.arpa resolution, containers on VM 202.
   |     |
   |     |-- HTTP 400 "invalid date format,
   |     |   expected YYYY-MM-DDTHH:MM" on every
@@ -490,7 +499,7 @@ Symptom: the site is broken.
   |-- Is nginx even running?
         ssh ubuntu@<nginx vm> 'systemctl is-active nginx'
           |-- "failed" + nginx -t says
-          |   'host not found in upstream "docker.local:8080"'
+          |   'host not found in upstream "docker.home.arpa:8080"'
           |                                       -> mDNS failed at config load. See hazards 6 and 7.
           |-- "active"                            -> move down a layer to the backend.
 ```
@@ -500,13 +509,13 @@ Symptom: the site is broken.
 | Layer | Check | Healthy result |
 |---|---|---|
 | 1. Cloudflare edge | `curl -sI https://party-time.panahi-systems.com/` | Not a `text/plain` `error code: 502` |
-| 2. Tunnel | `ssh ubuntu@nginx-cloudflared.local 'systemctl is-active cloudflared'` | `active` |
-| 3. Public nginx | `ssh ubuntu@nginx-cloudflared.local 'systemctl is-active nginx; sudo nginx -t'` | `active`, `syntax is ok` |
-| 4. Name resolution | `ssh ubuntu@nginx-cloudflared.local 'getent hosts docker.local'` | Returns the **current** docker VM IP (`192.168.68.78`) |
-| 5. Stale `/etc/hosts` | `ssh ubuntu@nginx-cloudflared.local 'grep -n docker.local /etc/hosts'` | **No output.** Any line here is a bug — see hazard 6a |
-| 6. Docker VM network | `ssh ubuntu@docker.local 'ip -4 addr show enp6s18'` | Has an IPv4 address |
-| 7. Containers | `ssh ubuntu@docker.local 'docker ps --format "{{.Names}} {{.Status}}"'` | 3 containers `Up` |
-| 8. Backend direct | `ssh ubuntu@docker.local 'curl -s localhost:8080/invites'` | JSON |
+| 2. Tunnel | `ssh ubuntu@nginx-cloudflared.home.arpa 'systemctl is-active cloudflared'` | `active` |
+| 3. Public nginx | `ssh ubuntu@nginx-cloudflared.home.arpa 'systemctl is-active nginx; sudo nginx -t'` | `active`, `syntax is ok` |
+| 4. Name resolution | `ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa'` | Returns the **current** docker VM IP (`10.10.10.20`) |
+| 5. Stale `/etc/hosts` | `ssh ubuntu@nginx-cloudflared.home.arpa 'grep -n docker.home.arpa /etc/hosts'` | **No output.** Any line here is a bug — see hazard 6a |
+| 6. Docker VM network | `ssh ubuntu@docker.home.arpa 'ip -4 addr show enp6s18'` | Has an IPv4 address |
+| 7. Containers | `ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}} {{.Status}}"'` | 3 containers `Up` |
+| 8. Backend direct | `ssh ubuntu@docker.home.arpa 'curl -s localhost:8080/invites'` | JSON |
 | 9. Database | `docker exec party-time-db pg_isready -U "$DBUSER"` | `accepting connections` |
 
 ### Telling the layers apart from the error page
@@ -569,7 +578,7 @@ playbook output alone.
 Always verify with container age and image age:
 
 ```bash
-ssh ubuntu@docker.local 'docker ps --format "{{.Names}} {{.Status}}"; docker images party-time-backend --format "{{.ID}} {{.CreatedSince}}"'
+ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}} {{.Status}}"; docker images party-time-backend --format "{{.ID}} {{.CreatedSince}}"'
 ```
 
 Ages measured in seconds/minutes mean it applied. Ages in hours mean it did not.
@@ -632,9 +641,11 @@ no-store` using the two `curl` commands in [Verification](#verification).
 
 ### 6. mDNS is the #1 fragility
 
-Four separate mDNS-related incidents occurred **in a single day**. Both nginx
-upstreams point at `docker.local` by name, so anything that breaks name resolution
-breaks the site.
+Four separate mDNS-related incidents occurred **in a single day**, back when both
+nginx upstreams pointed at `docker.local`. They now use `docker.home.arpa`, a
+fixed record on the router's dnsmasq, but anything that breaks name resolution
+still breaks the site. Only the admin hostname alias (row e) still depends on
+mDNS.
 
 | # | Symptom | Cause | Fix |
 |---|---|---|---|
@@ -644,14 +655,14 @@ breaks the site.
 | d | `nginx-cloudflared.local` and `nginx-internal.local` resolved inconsistently | Both nginx VMs logged avahi `Host name conflict, retrying with -2` and renamed themselves to `nginx-cloudflared-2.local` / `nginx-internal-2.local`. A network flap can make avahi see a delayed echo of its *own* probe and wrongly conclude the name is taken | `sudo systemctl restart avahi-daemon` on each affected VM |
 | e | `party-time.nginx-internal.local` (the admin app hostname) stops resolving while plain `nginx-internal.local` (the VM's own name) still resolves fine | This three-label alias isn't published by avahi-daemon itself — `deploy/party-time.yml` installs a small supervised `avahi-publish -a -R` process (`party-time-mdns-alias.service`) on VM 203 to answer for it, and that process died or was never (re)installed | `ssh ubuntu@nginx-internal.local 'systemctl status party-time-mdns-alias; sudo systemctl restart party-time-mdns-alias'`. If the unit is missing entirely, re-run `./deploy.sh` (or `--nginx-only`) |
 
-Diagnostics for any suspected mDNS problem:
+Diagnostics for a suspected name-resolution problem:
 
 ```bash
-ssh ubuntu@nginx-cloudflared.local 'grep -n docker.local /etc/hosts'   # must print NOTHING
-ssh ubuntu@nginx-cloudflared.local 'getent hosts docker.local'         # must be 192.168.68.78
-ssh ubuntu@docker.local 'ip -4 addr show enp6s18'                      # must have an IPv4
-ssh ubuntu@nginx-internal.local 'journalctl -u avahi-daemon --no-pager -n 50 | grep -i conflict'
-ssh ubuntu@nginx-internal.local 'systemctl is-active party-time-mdns-alias'  # must be "active"
+ssh ubuntu@nginx-cloudflared.home.arpa 'grep -n docker.home.arpa /etc/hosts'   # must print NOTHING
+ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa'         # must be 10.10.10.20
+ssh ubuntu@docker.home.arpa 'ip -4 addr show enp6s18'                      # must have an IPv4
+ssh ubuntu@nginx-internal.home.arpa 'journalctl -u avahi-daemon --no-pager -n 50 | grep -i conflict'
+ssh ubuntu@nginx-internal.home.arpa 'systemctl is-active party-time-mdns-alias'  # must be "active"
 ```
 
 > Check `/etc/hosts` **first**. It silently overrides everything else, and because
@@ -660,21 +671,21 @@ ssh ubuntu@nginx-internal.local 'systemctl is-active party-time-mdns-alias'  # m
 ### 7. nginx refuses to start if an upstream hostname is unresolvable
 
 nginx resolves upstream hostnames **once, at config-parse time** — not per request.
-If `docker.local` cannot be resolved at that moment, nginx **fails to start or
+If `docker.home.arpa` cannot be resolved at that moment, nginx **fails to start or
 reload**.
 
 | Check | Failing output |
 |---|---|
 | `systemctl is-active nginx` | `failed` |
-| `sudo nginx -t` | `host not found in upstream "docker.local:8080"` |
+| `sudo nginx -t` | `host not found in upstream "docker.home.arpa:8080"` |
 
 The consequence: a **transient** DNS failure can leave nginx **permanently down**
 until someone restarts it manually — long after resolution recovered.
 
-Recovery, after confirming `docker.local` resolves again:
+Recovery, after confirming `docker.home.arpa` resolves again:
 
 ```bash
-ssh ubuntu@nginx-cloudflared.local 'getent hosts docker.local && sudo nginx -t && sudo systemctl restart nginx'
+ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa && sudo nginx -t && sudo systemctl restart nginx'
 ```
 
 ### 8. Telling the layers apart from the error page
@@ -682,7 +693,7 @@ ssh ubuntu@nginx-cloudflared.local 'getent hosts docker.local && sudo nginx -t &
 | Response | Produced by | Diagnosis |
 |---|---|---|
 | `content-type: text/plain`, body `error code: 502` | Cloudflare | The tunnel cannot reach nginx — check `cloudflared` and nginx on VM 201 |
-| An HTML 502 page | nginx | nginx is up but cannot reach the backend — check `docker.local` resolution and the containers on VM 202 |
+| An HTML 502 page | nginx | nginx is up but cannot reach the backend — check `docker.home.arpa` resolution and the containers on VM 202 |
 
 Read the `content-type` before doing anything else. It localizes the fault for free.
 
@@ -715,7 +726,7 @@ broken deploy.
 
 | | |
 |---|---|
-| Admin dashboard | `http://party-time.nginx-internal.local/` — **the root** |
+| Admin dashboard | `http://partytime.home.arpa/` — **the root** |
 | Admin SPA routes | `/`, `/contacts`, `/event/:id` |
 | `/admin/*` | JSON API endpoints only, proxied to `party-time-admin` |
 
@@ -801,7 +812,7 @@ applied rather than being allowed to run it — running it for real would fail
 on the first `CREATE TABLE` collision.
 
 ```bash
-ssh ubuntu@docker.local
+ssh ubuntu@docker.home.arpa
 source /opt/party-time/.env.prod
 docker exec party-time-db psql -U "$DBUSER" -d party_time -c \
   "CREATE TABLE IF NOT EXISTS party_time.goose_db_version (id integer PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY, version_id bigint NOT NULL, is_applied boolean NOT NULL, tstamp timestamp NOT NULL DEFAULT now());
@@ -830,7 +841,7 @@ variant, since `party-time-backend` lives in its own image, not in the
 `party-time-db` container:
 
 ```bash
-ssh ubuntu@docker.local 'cd /opt/party-time && \
+ssh ubuntu@docker.home.arpa 'cd /opt/party-time && \
   docker compose -f docker-compose.prod.yml run --rm migrate migrate status'
 ```
 
