@@ -24,7 +24,8 @@
 #   ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
 #     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD \
 #       -e party_time_public_url=https://party-time.panahi-systems.com \
-#       -e party_time_admin_url=http://party-time.nginx-internal.local
+#       -e party_time_admin_url=http://partytime.home.arpa \
+#       -e party_time_admin_legacy_host=party-time.nginx-internal.local
 #
 # party_time_public_url and party_time_admin_url are the two configurable
 # hostnames (see deploy/hosts.env — the single source of truth for their
@@ -32,6 +33,11 @@
 # (INVITEE_BASE_URL, written into the compose .env below), and the
 # server_name of each nginx vhost (derived via the urlsplit filter so the
 # URL and the vhost hostname can never drift apart).
+#
+# partytime.home.arpa is a homelab internal DNS record that points at the
+# router, which forwards :80 to nginx-internal. party_time_admin_legacy_host
+# is an extra server_name for the old mDNS name, which the mDNS alias unit
+# below keeps publishing; set it to "" to drop the old name.
 #
 # That is the whole invocation. Prefer `./deploy.sh`, which wraps it and
 # supplies both -e vars from deploy/hosts.env automatically.
@@ -299,9 +305,10 @@
   vars:
     nginx_remove_default_vhost: true
     party_time_admin_host: "{{ party_time_admin_url | urlsplit('hostname') }}"
+    party_time_admin_legacy_host: party-time.nginx-internal.local
     nginx_vhosts:
       - listen: "80"
-        server_name: "{{ party_time_admin_host }}"
+        server_name: "{{ ([party_time_admin_host, party_time_admin_legacy_host] | select | unique) | join(' ') }}"
         root: /var/www/admin-ui
         index: index.html
         filename: party-time-admin.conf
@@ -350,7 +357,7 @@
         state: present
         update_cache: true
 
-    # party_time_admin_host (party-time.nginx-internal.local) is a THREE-label
+    # party_time_admin_legacy_host (party-time.nginx-internal.local) is a THREE-label
     # .local name. Avahi on this VM only auto-publishes the machine's own
     # two-label hostname (nginx-internal.local) — it has no config-file
     # mechanism for extra aliases, so a small supervised avahi-publish process
@@ -364,28 +371,30 @@
         mode: "0644"
         content: |
           [Unit]
-          Description=Publish {{ party_time_admin_host }} over mDNS
+          Description=Publish {{ party_time_admin_legacy_host }} over mDNS
           Requires=avahi-daemon.service
           After=avahi-daemon.service
 
           [Service]
-          ExecStart=/usr/bin/avahi-publish -a -R -f {{ party_time_admin_host }} {{ ansible_default_ipv4.address }}
+          ExecStart=/usr/bin/avahi-publish -a -R -f {{ party_time_admin_legacy_host }} {{ ansible_default_ipv4.address }}
           Restart=always
           RestartSec=5s
 
           [Install]
           WantedBy=multi-user.target
       register: mdns_alias_unit
+      when: party_time_admin_legacy_host | length > 0
 
     - name: Reload systemd if the mDNS alias unit changed
       ansible.builtin.systemd:
         daemon_reload: true
-      when: mdns_alias_unit.changed
+      when: mdns_alias_unit is changed
 
     - name: Enable and start the mDNS alias unit
       ansible.builtin.systemd:
         name: party-time-mdns-alias
         enabled: true
-        state: "{{ 'restarted' if mdns_alias_unit.changed else 'started' }}"
+        state: "{{ 'restarted' if mdns_alias_unit is changed else 'started' }}"
+      when: party_time_admin_legacy_host | length > 0
   roles:
     - geerlingguy.nginx

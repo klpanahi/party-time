@@ -1,6 +1,6 @@
 ---
 name: diagnose-party-time
-description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com or party-time.nginx-internal.local is not responding.
+description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com partytime.home.arpa, or party-time.nginx-internal.local is not responding.
 ---
 
 # Diagnose party-time
@@ -29,23 +29,24 @@ Work top-down through the layers and prove each one before moving on.
 ## Topology
 
 ```
-Public:  Internet → Cloudflare Tunnel → cloudflared on nginx-cloudflared (.77)
-                  → nginx on .77 → docker.local:8080 → party-time-public → Postgres
+Public:  Internet → Cloudflare Tunnel → cloudflared on nginx-cloudflared
+                  → nginx on nginx-cloudflared (10.10.10.10) → docker.home.arpa:8080 → party-time-public → Postgres
 
-Admin:   LAN → nginx on nginx-internal (.85) → docker.local:8081 → party-time-admin → Postgres
+Admin:   LAN → partytime.home.arpa (router :80) → nginx-internal (10.10.10.40) → docker.home.arpa:8081 → party-time-admin → Postgres
 ```
 
 | Host | IP | Runs |
 |---|---|---|
-| nginx-cloudflared | 192.168.68.77 | cloudflared + nginx (public edge) |
-| docker | 192.168.68.78 | party-time-public `:8080`, party-time-admin `:8081`, party-time-db (postgres:17) |
-| nginx-internal | 192.168.68.85 | nginx (admin UI) |
+| nginx-cloudflared | 10.10.10.10 (`nginx-cloudflared.home.arpa`) | cloudflared + nginx (public edge) |
+| docker | 10.10.10.20 (`docker.home.arpa`) | party-time-public `:8080`, party-time-admin `:8081`, party-time-db (postgres:17) |
+| nginx-internal | 10.10.10.40 (`nginx-internal.home.arpa`) | nginx (admin UI) |
 
-Public URL: `https://party-time.panahi-systems.com`  Admin URL: `http://party-time.nginx-internal.local/`
-SSH to any VM as `ubuntu@<ip>` or `ubuntu@<name>.local`.
+Public URL: `https://party-time.panahi-systems.com`  Admin URL: `http://partytime.home.arpa/`
+SSH to any VM as `ubuntu@<name>.home.arpa` (from a Mac, needs the local route to
+10.10.10.0/24 via 192.168.68.100).
 
-> **The nginx upstreams reference `docker.local` by mDNS name.** Keep that in mind at
-> every step — it is the single most common root cause.
+> **The nginx upstreams reference `docker.home.arpa` by name**, resolved once at nginx
+> config load through the router's dnsmasq. Name resolution is the most common root cause.
 
 ## Step 0 — Is the running code even the code you're debugging?
 
@@ -55,7 +56,7 @@ deployed.
 
 ```bash
 curl -s https://party-time.panahi-systems.com/healthz
-curl -s http://party-time.nginx-internal.local/healthz
+curl -s http://partytime.home.arpa/healthz
 git rev-parse --short origin/main
 ```
 
@@ -134,12 +135,13 @@ ssh ubuntu@192.168.68.77 'systemctl is-active cloudflared; sudo journalctl -u cl
 ## Step 4 — Can nginx reach the backend?
 
 ```bash
-ssh ubuntu@192.168.68.77 'getent hosts docker.local; curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://docker.local:8080/invites'
+ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa; resolvectl domain; curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://docker.home.arpa:8080/invites'
 ```
 
-(Same on `192.168.68.85` against `docker.local:8081` for the admin path.)
+(Same on `nginx-internal.home.arpa` against `docker.home.arpa:8081` for the admin path.)
 
-**If `getent` returns no IP or the wrong IP** → mDNS problem → **`fix-homelab-mdns`** skill.
+**If `getent` returns no IP or the wrong IP** → check `resolvectl domain` lists `~home.arpa`
+(homelab `site.yml` sets it) and that `dig @10.10.10.1 docker.home.arpa` answers `10.10.10.20`.
 
 Then check for a stale hardcoded override:
 
@@ -165,7 +167,7 @@ VM's real address.
 ## Step 5 — Are the containers healthy?
 
 ```bash
-ssh ubuntu@docker.local 'docker ps --format "{{.Names}}\t{{.Status}}"; docker logs --tail 20 party-time-public'
+ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}}\t{{.Status}}"; docker logs --tail 20 party-time-public'
 ```
 
 Expect `party-time-public`, `party-time-admin`, and `party-time-db` (the latter `(healthy)`).
@@ -173,7 +175,7 @@ Expect `party-time-public`, `party-time-admin`, and `party-time-db` (the latter 
 Then verify the docker VM still **has an IPv4 address** — it has silently lost one before:
 
 ```bash
-ssh ubuntu@docker.local 'ip -4 -o addr show enp6s18; networkctl status enp6s18 | grep State:'
+ssh ubuntu@docker.home.arpa 'ip -4 -o addr show enp6s18; networkctl status enp6s18 | grep State:'
 ```
 
 > State `degraded (failed)` with **no `inet` line** means the interface lost its DHCP lease.
@@ -212,7 +214,7 @@ here means a cache is replaying the browser representation to the SPA's fetch.
 ## Database
 
 ```bash
-ssh ubuntu@docker.local 'source /opt/party-time/.env.prod; docker exec party-time-db psql -U "$DBUSER" -d party_time -c "SELECT id,name,date,status FROM party_time.events;"'
+ssh ubuntu@docker.home.arpa 'source /opt/party-time/.env.prod; docker exec party-time-db psql -U "$DBUSER" -d party_time -c "SELECT id,name,date,status FROM party_time.events;"'
 ```
 
 > The schema is **`party_time`**, not `public`. An unqualified `SELECT * FROM events`
