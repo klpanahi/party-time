@@ -23,7 +23,7 @@ and every event update returns this 400.
 Confirm on the docker VM:
 
 ```bash
-ssh ubuntu@docker.local 'docker exec party-time-admin ls /usr/share/zoneinfo'
+ssh ubuntu@docker.home.arpa 'docker exec party-time-admin ls /usr/share/zoneinfo'
 ```
 
 `No such file or directory` confirms it.

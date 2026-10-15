@@ -124,7 +124,7 @@ check by hand — a killed or timed-out deploy can leave nothing applied while
 looking like it ran:
 
 ```bash
-ssh ubuntu@docker.local 'docker ps --format "{{.Names}}\t{{.Status}}"; docker images party-time-backend --format "id={{.ID}} created={{.CreatedSince}}"'
+ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}}\t{{.Status}}"; docker images party-time-backend --format "id={{.ID}} created={{.CreatedSince}}"'
 ```
 
 Containers should show seconds/minutes of uptime and a newly created image.

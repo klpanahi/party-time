@@ -24,7 +24,7 @@
 #   ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
 #     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD \
 #       -e party_time_public_url=https://party-time.panahi-systems.com \
-#       -e party_time_admin_url=http://party-time.nginx-internal.local
+#       -e party_time_admin_url=http://partytime.home.arpa
 #
 # party_time_public_url and party_time_admin_url are the two configurable
 # hostnames (see deploy/hosts.env — the single source of truth for their
@@ -307,8 +307,8 @@
         filename: party-time-admin.conf
         extra_parameters: "{{ lookup('file', party_time_repo + '/deploy/nginx/admin.conf') }}"
       # Same hard-cutover rationale as the public-nginx play above: without
-      # this, nginx would keep answering plain nginx-internal.local (and any
-      # other Host) with the admin vhost.
+      # this, nginx would keep answering the old party-time.nginx-internal.local
+      # (and any other Host) with the admin vhost.
       - listen: "80 default_server"
         server_name: "_"
         filename: party-time-admin-catchall.conf
@@ -340,52 +340,27 @@
         dest: /etc/nginx/conf.d/party-time-admin-upstream.conf
         mode: "0644"
 
-    # avahi-utils provides the avahi-publish binary the unit below execs.
-    # site.yml only installs avahi-daemon + libnss-mdns (resolution), not
-    # avahi-utils (publishing) — without this the unit fails at exec time
-    # with status=203/EXEC and the alias never comes up.
-    - name: Install avahi-utils (avahi-publish)
-      ansible.builtin.apt:
-        name: avahi-utils
-        state: present
-        update_cache: true
+    # The admin hostname used to be party-time.nginx-internal.local, published
+    # over mDNS by a supervised avahi-publish unit. It now lives in the router's
+    # internal DNS (homelab ansible/dns/records.yml: partytime.home.arpa -> the
+    # router, which forwards :80 to this VM), so the unit is retired. These tasks
+    # remove it from VMs that still have it; they are no-ops afterwards.
+    - name: Stop and disable the retired mDNS alias unit
+      ansible.builtin.systemd:
+        name: party-time-mdns-alias
+        enabled: false
+        state: stopped
+      failed_when: false
 
-    # party_time_admin_host (party-time.nginx-internal.local) is a THREE-label
-    # .local name. Avahi on this VM only auto-publishes the machine's own
-    # two-label hostname (nginx-internal.local) — it has no config-file
-    # mechanism for extra aliases, so a small supervised avahi-publish process
-    # is the standard way to add one. -R suppresses the reverse PTR record so
-    # this VM's IP keeps reverse-resolving to nginx-internal.local (not this
-    # alias) — see ops/AGENT.md hazard 6 for why that matters. -f keeps it
-    # retrying if avahi-daemon is momentarily down instead of exiting once.
-    - name: Install mDNS alias unit for the admin hostname
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/party-time-mdns-alias.service
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Publish {{ party_time_admin_host }} over mDNS
-          Requires=avahi-daemon.service
-          After=avahi-daemon.service
-
-          [Service]
-          ExecStart=/usr/bin/avahi-publish -a -R -f {{ party_time_admin_host }} {{ ansible_default_ipv4.address }}
-          Restart=always
-          RestartSec=5s
-
-          [Install]
-          WantedBy=multi-user.target
+    - name: Remove the retired mDNS alias unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/party-time-mdns-alias.service
+        state: absent
       register: mdns_alias_unit
 
-    - name: Reload systemd if the mDNS alias unit changed
+    - name: Reload systemd if the mDNS alias unit was removed
       ansible.builtin.systemd:
         daemon_reload: true
       when: mdns_alias_unit.changed
-
-    - name: Enable and start the mDNS alias unit
-      ansible.builtin.systemd:
-        name: party-time-mdns-alias
-        enabled: true
-        state: "{{ 'restarted' if mdns_alias_unit.changed else 'started' }}"
   roles:
     - geerlingguy.nginx

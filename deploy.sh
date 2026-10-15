@@ -230,7 +230,7 @@ else
         ;;
       *)
         echo "REFUSING: invite_url='$INVITE_URL' does not start with '$PARTY_TIME_PUBLIC_URL'." >&2
-        echo "  INVITEE_BASE_URL likely didn't reach the backend — check /opt/party-time/.env on docker.local." >&2
+        echo "  INVITEE_BASE_URL likely didn't reach the backend — check /opt/party-time/.env on docker.home.arpa." >&2
         exit 1
         ;;
     esac

@@ -1,6 +1,6 @@
 ---
 name: party-time-create-event
-description: Creates an event in the Party Time admin UI at http://party-time.nginx-internal.local/ by driving Chrome through the chrome-devtools MCP tools, including the datetime-local field that fill and type_text silently fail to set. Use when the user asks to create, add, schedule, or seed an event in Party Time; wants a test event made; asks to verify or smoke-test the party-time admin deployment end to end; or mentions party-time.nginx-internal.local, the party-time admin app, or the admin events page.
+description: Creates an event in the Party Time admin UI at http://partytime.home.arpa/ by driving Chrome through the chrome-devtools MCP tools, including the datetime-local field that fill and type_text silently fail to set. Use when the user asks to create, add, schedule, or seed an event in Party Time; wants a test event made; asks to verify or smoke-test the party-time admin deployment end to end; or mentions partytime.home.arpa, the party-time admin app, or the admin events page.
 ---
 
 # Create a Party Time event
@@ -12,16 +12,17 @@ writes to Postgres.
 ## Prerequisites
 
 - The `chrome-devtools` MCP tools are available (`mcp__plugin_ecc_chrome-devtools__*`).
-- `http://party-time.nginx-internal.local/` resolves — it is LAN-only, no Cloudflare
+- `http://partytime.home.arpa/` resolves — it is LAN-only, no Cloudflare
   tunnel. If it does not resolve, the caller is off the LAN/VPN; say so and stop.
-  (If plain `nginx-internal.local` resolves but this three-label name doesn't, the
-  VM's `party-time-mdns-alias` systemd unit has died — see `ops/AGENT.md` hazard 6e.)
+  It resolves through the router's internal DNS (homelab `ansible/dns/records.yml`)
+  to `192.168.68.100`, which forwards :80 to nginx-internal; a Mac whose DNS is not
+  `192.168.68.100` will not resolve it.
 
 ## Workflow
 
 1. **Open the page**
 
-   `new_page` with `url: http://party-time.nginx-internal.local/`. Title should be
+   `new_page` with `url: http://partytime.home.arpa/`. Title should be
    "Party Time — Admin". If you already have a tab, `navigate_page` instead.
 
 2. **Open the modal**

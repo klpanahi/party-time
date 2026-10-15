@@ -12,9 +12,9 @@ set -uo pipefail
 # NOTE: deliberately no `set -e` — individual checks are expected to fail and
 # the script must keep going to produce a complete picture.
 
-NGINX_CF=192.168.68.77   # nginx-cloudflared: cloudflared + public nginx
-DOCKER_VM=192.168.68.78  # docker: containers + postgres
-NGINX_INT=192.168.68.85  # nginx-internal: admin nginx
+NGINX_CF=10.10.10.10    # nginx-cloudflared: cloudflared + public nginx
+DOCKER_VM=10.10.10.20   # docker: containers + postgres
+NGINX_INT=10.10.10.40   # nginx-internal: admin nginx
 
 # PARTY_TIME_PUBLIC_URL / PARTY_TIME_ADMIN_URL — see deploy/hosts.env for the
 # defaults and how deploy.sh derives the same values.
@@ -59,7 +59,7 @@ printf '%s %s%s\n' "$C_HEAD" "$(date '+%Y-%m-%d %H:%M:%S')" "$C_OFF"
 printf '%s=======================================================%s\n' "$C_HEAD" "$C_OFF"
 
 # --------------------------------------------------------------------------
-section "1. mDNS resolution from this machine"
+section "1. Internal DNS (home.arpa) resolution from this machine"
 # --------------------------------------------------------------------------
 resolve_host() {
     # Echo the resolved IPv4, or nothing. macOS first, getent as fallback.
@@ -77,12 +77,12 @@ resolve_host() {
     printf '%s' "$out"
 }
 
-for name in docker.local nginx-internal.local nginx-cloudflared.local "$ADMIN_HOSTNAME"; do
+for name in docker.home.arpa nginx-internal.home.arpa nginx-cloudflared.home.arpa "$ADMIN_HOSTNAME"; do
     ip=$(resolve_host "$name")
     if [ -n "$ip" ]; then
-        pass "mDNS $name -> $ip"
+        pass "DNS $name -> $ip"
     else
-        fail "mDNS $name did not resolve (see the fix-homelab-mdns skill)"
+        fail "DNS $name did not resolve — is this machine using the router (192.168.68.100) for DNS? See homelab docs/internal-dns.md"
     fi
 done
 
@@ -178,23 +178,23 @@ fi
 # --------------------------------------------------------------------------
 section "7. nginx -> backend, by name (from $NGINX_CF)"
 # --------------------------------------------------------------------------
-getent_out=$(remote "$NGINX_CF" 'getent hosts docker.local' | oneline)
+getent_out=$(remote "$NGINX_CF" 'getent hosts docker.home.arpa' | oneline)
 if [ -n "$getent_out" ]; then
     resolved_ip=$(printf '%s' "$getent_out" | awk '{print $1}')
     if [ "$resolved_ip" = "$DOCKER_VM" ]; then
-        pass "getent hosts docker.local -> $resolved_ip"
+        pass "getent hosts docker.home.arpa -> $resolved_ip"
     else
-        fail "getent hosts docker.local -> $resolved_ip (expected $DOCKER_VM) — stale /etc/hosts entry or mDNS conflict"
+        fail "getent hosts docker.home.arpa -> $resolved_ip (expected $DOCKER_VM) — stale /etc/hosts entry or wrong record in homelab ansible/dns/records.yml"
     fi
 else
-    fail "getent hosts docker.local resolved nothing on $NGINX_CF — see the fix-homelab-mdns skill"
+    fail "getent hosts docker.home.arpa resolved nothing on $NGINX_CF — is its nameserver 10.10.10.1? (resolvectl status)"
 fi
 
-code=$(remote "$NGINX_CF" 'curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://docker.local:8080/invites' | oneline)
+code=$(remote "$NGINX_CF" 'curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://docker.home.arpa:8080/invites' | oneline)
 if [ "$code" = "200" ]; then
-    pass "http://docker.local:8080/invites from $NGINX_CF -> 200"
+    pass "http://docker.home.arpa:8080/invites from $NGINX_CF -> 200"
 else
-    fail "http://docker.local:8080/invites from $NGINX_CF -> ${code:-no response}"
+    fail "http://docker.home.arpa:8080/invites from $NGINX_CF -> ${code:-no response}"
 fi
 
 # --------------------------------------------------------------------------
