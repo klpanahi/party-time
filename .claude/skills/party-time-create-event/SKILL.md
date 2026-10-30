@@ -1,21 +1,20 @@
 ---
 name: party-time-create-event
-description: Creates an event in the Party Time admin UI at http://partytime.home.arpa/ by driving Chrome through the chrome-devtools MCP tools, including the datetime-local field that fill and type_text silently fail to set. Use when the user asks to create, add, schedule, or seed an event in Party Time; wants a test event made; asks to verify or smoke-test the party-time admin deployment end to end; or mentions party-time.nginx-internal.local, the party-time admin app, or the admin events page.
+description: Creates an event in the Party Time admin UI at http://partytime.home.arpa/ by driving Chrome through the chrome-devtools MCP tools, including the datetime-local field that fill and type_text silently fail to set. Use when the user asks to create, add, schedule, or seed an event in Party Time; wants a test event made; asks to verify or smoke-test the party-time admin deployment end to end; or mentions partytime.home.arpa, the party-time admin app, or the admin events page.
 ---
 
 # Create a Party Time event
 
 Drives the real admin UI in Chrome so the whole path is exercised: nginx-internal
-serves the bundle, proxies `/admin` to `docker.local:8081`, the admin backend
+serves the bundle, proxies `/admin` to `docker.home.arpa:8081`, the admin backend
 writes to Postgres.
 
 ## Prerequisites
 
 - The `chrome-devtools` MCP tools are available (`mcp__plugin_ecc_chrome-devtools__*`).
 - `http://partytime.home.arpa/` resolves — it is LAN-only, no Cloudflare
-  tunnel. If it does not resolve, the caller is off the LAN/VPN; say so and stop.
-  (If plain `nginx-internal.local` resolves but this three-label name doesn't, the
-  VM's `party-time-mdns-alias` systemd unit has died — see `ops/AGENT.md` hazard 6e.)
+  tunnel. If it does not resolve, the caller is off the LAN/VPN or the router's DNS
+  is down; say so and stop.
 
 ## Workflow
 

@@ -28,7 +28,7 @@ Both share one Postgres database.
 | Surface | URL |
 |---|---|
 | Public invitee UI | `https://party-time.panahi-systems.com` |
-| Admin UI | `http://partytime.home.arpa/` (old name `http://party-time.nginx-internal.local/` still answers) |
+| Admin UI | `http://partytime.home.arpa/` |
 | Proxmox | `https://homelab2.home.arpa:8006` |
 
 Both are configurable — see `deploy/hosts.env` in the party-time repo
@@ -36,10 +36,9 @@ Both are configurable — see `deploy/hosts.env` in the party-time repo
 `deploy/party-time.yml`, `deploy.sh`, and `ops/healthcheck.sh`. The admin
 hostname `partytime.home.arpa` is a homelab internal DNS record (served by the
 router VM's dnsmasq at `192.168.68.100`) that points at the router, which
-forwards :80/:443 to nginx-internal. The old three-label `.local` name
-(`PARTY_TIME_ADMIN_LEGACY_HOST`) is kept as a second `server_name`, published by
-a supervised `avahi-publish` alias (`party-time-mdns-alias.service`) — see
-hazard 6b below.
+forwards :80/:443 to nginx-internal. The old mDNS name
+`party-time.nginx-internal.local` and its `avahi-publish` alias unit were
+retired on 2026-10-30 along with mDNS across the homelab (hazard 6).
 
 ---
 
@@ -102,24 +101,27 @@ ADMIN
   party-time-db (postgres:17)
 ```
 
-> **The single most important fact on this page:** both nginx upstreams reference
-> `docker.home.arpa` **by name**, not by IP. nginx resolves upstream names **once,
-> at config-parse time**, so the nginx VMs must route `home.arpa` to the router
-> (`resolvectl domain` shows `~home.arpa`; homelab `site.yml` sets it). Before the
-> move to internal DNS these were `docker.local` mDNS names, the #1 source of
-> outages — hazards 6 and 7 record that history.
+> **The single most important fact on this page:** both nginx vhosts reach the
+> backend as `docker.home.arpa` **by name**, through a variable
+> (`proxy_pass $public_backend`), so nginx resolves it **per request** via the
+> resolver homelab installs in `/etc/nginx/conf.d/resolver.conf`. Never pin the
+> IP and never go back to an `upstream {}` block: those resolve once at startup,
+> and a name that doesn't resolve then stops nginx starting at all (hazard 7).
+> Before internal DNS these were `docker.local` mDNS names, the #1 source of
+> outages (hazard 6).
 
 ### Access
 
 ```bash
-ssh ubuntu@docker.home.arpa
-ssh ubuntu@nginx-cloudflared.home.arpa
-ssh ubuntu@nginx-internal.home.arpa
+ssh ubuntu@docker.home.arpa             # VM
+ssh root@nginx-cloudflared.home.arpa    # LXC: no ubuntu user, log in as root
+ssh root@nginx-internal.home.arpa       # LXC
 # From a Mac these need the local route to 10.10.10.0/24 via 192.168.68.100
-# (homelab README). The .local mDNS names still work while avahi runs.
+# (homelab README).
 ```
 
-All VMs share a single SSH key (`~/.ssh/id_ed25519` per `ansible/ansible.cfg`).
+All guests share a single SSH key (`~/.ssh/id_ed25519` per `ansible/ansible.cfg`).
+The nginx guests are unprivileged LXCs, so they take `root@`, not `ubuntu@`.
 There is no per-VM key.
 
 ### Ansible groups
@@ -160,7 +162,7 @@ its `README.md` for where everything went.
 
 | Path | Purpose |
 |---|---|
-| `ansible/site.yml` | Base configuration — avahi/mDNS, nginx (install/baseline only), cloudflared, docker roles |
+| `ansible/site.yml` | Base configuration — home.arpa resolution, nginx (install/baseline + `conf.d/resolver.conf`), cloudflared, docker roles |
 | `ansible/group_vars/tag_nginx.yml` | Public nginx group vars — `nginx_remove_default_vhost` only; the vhost itself lives in `party-time` now |
 | `ansible/group_vars/tag_nginx_internal.yml` | Admin nginx group vars — `nginx_remove_default_vhost` only; the vhost itself lives in `party-time` now |
 | `ansible/inventory/proxmox.yml` | Dynamic inventory from the Proxmox API |
@@ -335,8 +337,8 @@ the playbook output suggested.
 ### 2. nginx is actually running on both edges
 
 ```bash
-ssh ubuntu@nginx-cloudflared.home.arpa 'systemctl is-active nginx; sudo nginx -t'
-ssh ubuntu@nginx-internal.home.arpa    'systemctl is-active nginx; sudo nginx -t'
+ssh root@nginx-cloudflared.home.arpa 'systemctl is-active nginx; nginx -t'
+ssh root@nginx-internal.home.arpa    'systemctl is-active nginx; nginx -t'
 ```
 
 `nginx -t` is the check that catches an unresolvable upstream (hazard 7).
@@ -451,17 +453,16 @@ ssh ubuntu@docker.home.arpa 'source /opt/party-time/.env.prod; docker exec party
 Delete child rows in `invites`, `messages`, and `texts` first — they carry foreign
 keys to `events`.
 
-### Recover mDNS
+### Recover the docker VM's network
 
 ```bash
-sudo systemctl restart avahi-daemon          # on the affected VM
 sudo networkctl reconfigure enp6s18          # on the docker VM, if it lost its IPv4
 ```
 
 ### Restart the Cloudflare tunnel
 
 ```bash
-ssh ubuntu@nginx-cloudflared.home.arpa 'sudo systemctl restart cloudflared; systemctl is-active cloudflared'
+ssh root@nginx-cloudflared.home.arpa 'systemctl restart cloudflared; systemctl is-active cloudflared'
 ```
 
 ---
@@ -497,10 +498,12 @@ Symptom: the site is broken.
   |     |-- Gin plain-text 404 at /admin          -> Not a bug. /admin is an API prefix. See hazard 10.
   |
   |-- Is nginx even running?
-        ssh ubuntu@<nginx vm> 'systemctl is-active nginx'
+        ssh root@<nginx guest> 'systemctl is-active nginx'
           |-- "failed" + nginx -t says
-          |   'host not found in upstream "docker.home.arpa:8080"'
-          |                                       -> mDNS failed at config load. See hazards 6 and 7.
+          |   'host not found in upstream ...'    -> a static upstream/proxy_pass name crept back in.
+          |                                          Use the $variable form. See hazard 7.
+          |-- "active" but 502 + error.log says
+          |   'could not be resolved'             -> home.arpa DNS is down (router VM). See hazard 6.
           |-- "active"                            -> move down a layer to the backend.
 ```
 
@@ -509,10 +512,10 @@ Symptom: the site is broken.
 | Layer | Check | Healthy result |
 |---|---|---|
 | 1. Cloudflare edge | `curl -sI https://party-time.panahi-systems.com/` | Not a `text/plain` `error code: 502` |
-| 2. Tunnel | `ssh ubuntu@nginx-cloudflared.home.arpa 'systemctl is-active cloudflared'` | `active` |
-| 3. Public nginx | `ssh ubuntu@nginx-cloudflared.home.arpa 'systemctl is-active nginx; sudo nginx -t'` | `active`, `syntax is ok` |
-| 4. Name resolution | `ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa'` | Returns the **current** docker VM IP (`10.10.10.20`) |
-| 5. Stale `/etc/hosts` | `ssh ubuntu@nginx-cloudflared.home.arpa 'grep -n docker.home.arpa /etc/hosts'` | **No output.** Any line here is a bug — see hazard 6a |
+| 2. Tunnel | `ssh root@nginx-cloudflared.home.arpa 'systemctl is-active cloudflared'` | `active` |
+| 3. Public nginx | `ssh root@nginx-cloudflared.home.arpa 'systemctl is-active nginx; nginx -t'` | `active`, `syntax is ok` |
+| 4. Name resolution | `ssh root@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa'` | Returns the **current** docker VM IP (`10.10.10.20`) |
+| 5. Stale `/etc/hosts` | `ssh root@nginx-cloudflared.home.arpa 'grep -n docker.home.arpa /etc/hosts'` | **No output.** Any line here is a bug — see hazard 6a |
 | 6. Docker VM network | `ssh ubuntu@docker.home.arpa 'ip -4 addr show enp6s18'` | Has an IPv4 address |
 | 7. Containers | `ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}} {{.Status}}"'` | 3 containers `Up` |
 | 8. Backend direct | `ssh ubuntu@docker.home.arpa 'curl -s localhost:8080/invites'` | JSON |
@@ -639,54 +642,62 @@ keep normal caching.
 If you edit this vhost, verify **both** branches still return `Cache-Control:
 no-store` using the two `curl` commands in [Verification](#verification).
 
-### 6. mDNS is the #1 fragility
+### 6. Name resolution (formerly mDNS, the #1 fragility)
 
-Four separate mDNS-related incidents occurred **in a single day**, back when both
-nginx upstreams pointed at `docker.local`. They now use `docker.home.arpa`, a
-fixed record on the router's dnsmasq, but anything that breaks name resolution
-still breaks the site. Only the admin hostname alias (row e) still depends on
-mDNS.
+Everything resolves through the router VM's dnsmasq under `home.arpa`
+(homelab `docs/internal-dns.md`). If the router's DNS is down, nginx stays up but
+returns 502 for backend routes, and `/var/log/nginx/error.log` shows
+`docker.home.arpa could not be resolved`. It recovers on its own once DNS is back.
 
-| # | Symptom | Cause | Fix |
-|---|---|---|---|
-| a | nginx proxied to a dead IP; `docker.local` resolved to a stale `192.168.68.89` even after the VM moved | A hardcoded `192.168.68.89 docker.local` line in `/etc/hosts` on `nginx-cloudflared` masked mDNS entirely — `nsswitch.conf` lists `files` **before** `mdns4_minimal`. It was **not** Ansible-managed, so no playbook run would ever correct it | Remove the line from `/etc/hosts` |
-| b | `docker.local` resolved to an IP nothing was listening on | The docker VM's DHCP lease moved `192.168.68.89` → `192.168.68.78` on 2026-07-27 | None needed once (a) was removed — mDNS tracks the new IP automatically |
-| c | Docker VM unreachable by IPv4 for 17+ hours while containers kept running normally | Interface `enp6s18` failed with `Could not set NDisc address: Connection timed out` and lost its IPv4 address entirely; only IPv6 link-local remained | `sudo networkctl reconfigure enp6s18` |
-| d | `nginx-cloudflared.local` and `nginx-internal.local` resolved inconsistently | Both nginx VMs logged avahi `Host name conflict, retrying with -2` and renamed themselves to `nginx-cloudflared-2.local` / `nginx-internal-2.local`. A network flap can make avahi see a delayed echo of its *own* probe and wrongly conclude the name is taken | `sudo systemctl restart avahi-daemon` on each affected VM |
-| e | `party-time.nginx-internal.local` (the admin app hostname) stops resolving while plain `nginx-internal.local` (the VM's own name) still resolves fine | This three-label alias isn't published by avahi-daemon itself — `deploy/party-time.yml` installs a small supervised `avahi-publish -a -R` process (`party-time-mdns-alias.service`) on VM 203 to answer for it, and that process died or was never (re)installed | `ssh ubuntu@nginx-internal.local 'systemctl status party-time-mdns-alias; sudo systemctl restart party-time-mdns-alias'`. If the unit is missing entirely, re-run `./deploy.sh` (or `--nginx-only`) |
+mDNS (`.local` names over avahi) was **removed from every guest on 2026-10-30**.
+Before that it caused four incidents in a single day, kept here so nobody
+reintroduces it:
+
+| # | Symptom | Cause |
+|---|---|---|
+| a | nginx proxied to a dead IP; `docker.local` resolved to a stale `192.168.68.89` | A hand-added `192.168.68.89 docker.local` line in `/etc/hosts` on nginx-cloudflared (`files` comes before DNS in `nsswitch.conf`, and Ansible didn't manage it) |
+| b | `docker.local` resolved to an IP nothing listened on | The docker VM's DHCP lease moved (2026-07-27) |
+| c | Docker VM unreachable by IPv4 for 17+ hours | `enp6s18` lost its IPv4 (`Could not set NDisc address`). Not mDNS; fix with `sudo networkctl reconfigure enp6s18` |
+| d | `nginx-*.local` resolved inconsistently | avahi saw an echo of its own probe and renamed hosts to `nginx-cloudflared-2.local` / `nginx-internal-2.local` |
+| e | `party-time.nginx-internal.local` stopped resolving | The `avahi-publish` alias unit (`party-time-mdns-alias.service`) died. Retired with mDNS |
 
 Diagnostics for a suspected name-resolution problem:
 
 ```bash
-ssh ubuntu@nginx-cloudflared.home.arpa 'grep -n docker.home.arpa /etc/hosts'   # must print NOTHING
-ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa'         # must be 10.10.10.20
-ssh ubuntu@docker.home.arpa 'ip -4 addr show enp6s18'                      # must have an IPv4
-ssh ubuntu@nginx-internal.home.arpa 'journalctl -u avahi-daemon --no-pager -n 50 | grep -i conflict'
-ssh ubuntu@nginx-internal.home.arpa 'systemctl is-active party-time-mdns-alias'  # must be "active"
+ssh root@nginx-cloudflared.home.arpa 'grep -n home.arpa /etc/hosts'          # must print NOTHING
+ssh root@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa'         # must be 10.10.10.20
+ssh root@nginx-cloudflared.home.arpa 'resolvectl domain; cat /etc/nginx/conf.d/resolver.conf'
+ssh ubuntu@docker.home.arpa 'ip -4 addr show enp6s18'                         # must have an IPv4
+dig @192.168.68.100 docker.home.arpa +short                                   # the router answers
 ```
 
-> Check `/etc/hosts` **first**. It silently overrides everything else, and because
-> it is not Ansible-managed, re-running playbooks will never surface or fix it.
+> Check `/etc/hosts` **first**. It silently overrides DNS, and because it is not
+> Ansible-managed, re-running playbooks will never surface or fix it.
 
-### 7. nginx refuses to start if an upstream hostname is unresolvable
+### 7. nginx refuses to start if a static upstream name is unresolvable
 
-nginx resolves upstream hostnames **once, at config-parse time** — not per request.
-If `docker.home.arpa` cannot be resolved at that moment, nginx **fails to start or
-reload**.
+nginx resolves a hostname in an `upstream {}` block or a literal `proxy_pass`
+**once, at config-parse time**. If it can't resolve then, nginx **fails to start
+or reload**, and stays down after DNS recovers. That is what happened on
+2026-10-23: nginx-cloudflared booted before `docker.home.arpa` resolved, and the
+public site was down for three days.
+
+Fixed on 2026-10-30: `deploy/nginx/*-upstream.conf` now `map` the
+`$public_backend` / `$admin_backend` variables, and the vhosts
+`proxy_pass` to the variable. nginx then resolves per request through
+`/etc/nginx/conf.d/resolver.conf` (owned by homelab's site.yml), so boot order
+no longer matters. **Keep it that way:** any new backend goes through a
+variable, and there must be only one http-level `resolver` per host.
+
+If you still see this:
 
 | Check | Failing output |
 |---|---|
 | `systemctl is-active nginx` | `failed` |
-| `sudo nginx -t` | `host not found in upstream "docker.home.arpa:8080"` |
+| `nginx -t` | `host not found in upstream "..."` |
 
-The consequence: a **transient** DNS failure can leave nginx **permanently down**
-until someone restarts it manually — long after resolution recovered.
-
-Recovery, after confirming `docker.home.arpa` resolves again:
-
-```bash
-ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa && sudo nginx -t && sudo systemctl restart nginx'
-```
+find the static name (`grep -rn "server \|proxy_pass http" /etc/nginx/`), move
+it to the variable form, and `systemctl restart nginx`.
 
 ### 8. Telling the layers apart from the error page
 
@@ -901,11 +912,9 @@ Operational skills that automate the procedures in this document.
 | `deploy-party-time` | `.claude/skills/` in this repo (`party-time`) | Runs the build and deploy procedure |
 | `diagnose-party-time` | `.claude/skills/` in this repo (`party-time`) | Works the layer-by-layer troubleshooting guide |
 | `party-time-create-event` | `.claude/skills/` in this repo (`party-time`) | Creates an event through the admin UI, including the `datetime-local` field that normal automation cannot set (hazard 9) |
-| `fix-homelab-mdns` | `.claude/skills/` in the `homelab` repo | Diagnoses and repairs the mDNS failure modes in hazard 6 — lives in `homelab` because it's generic homelab infrastructure, not party-time-specific |
 
 The four `party-time` skills are symlinked into `~/.claude/skills/` by this
-repo's `scripts/link-skills.sh`; `fix-homelab-mdns` is symlinked separately by
-`homelab/scripts/link-skills.sh`. Symlinking makes every skill load regardless
+repo's `scripts/link-skills.sh`. Symlinking makes every skill load regardless
 of which repo is the working directory — deploys and builds both run from
 `party-time` now, but the symlink still matters for skills invoked while
 working from `homelab`. Re-run both scripts after a fresh clone.

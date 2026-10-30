@@ -1,8 +1,33 @@
 # Incident Log
 
 Real failures, what they looked like, and what actually fixed them. Ordered
-newest first. The value here is the *symptoms* — most of these presented as
+newest first. The mDNS entries are history: mDNS (`.local`, avahi) was removed
+from the homelab on 2026-10-30. The value here is the *symptoms* — most of these presented as
 something other than their cause.
+
+---
+
+## 2026-10-23 — Public site down three days after a reboot
+
+**Symptom:** `https://party-time.panahi-systems.com` returned Cloudflare's
+plain-text `error code: 502` for three days. The admin side and the backend
+containers were fine.
+
+**Cause:** nginx-cloudflared booted before `docker.home.arpa` resolved. The
+public vhost used `upstream public_backend { server docker.home.arpa:8080; }`,
+which nginx resolves once at startup, so nginx exited with `host not found in
+upstream` (party-time-public-upstream.conf:14) and nothing restarted it.
+cloudflared kept running and reported the origin as refused.
+
+**Fix:** started by hand at the time. Permanently fixed on 2026-10-30: the
+vhosts `proxy_pass` to `$public_backend` / `$admin_backend` (mapped to the
+`home.arpa` name in `deploy/nginx/*-upstream.conf`), resolved per request
+through `/etc/nginx/conf.d/resolver.conf` from homelab. nginx now starts
+whether or not DNS answers yet. See `ops/AGENT.md` hazard 7.
+
+**Tell:** Cloudflare's text/plain 502 plus `connection refused` to
+`127.0.0.1:80` in cloudflared's log means nginx isn't running, not that the
+backend is down.
 
 ---
 
