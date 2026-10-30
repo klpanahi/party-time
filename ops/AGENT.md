@@ -152,8 +152,8 @@ its `README.md` for where everything went.
 
 | Repo | Path | Contains |
 |---|---|---|
-| `homelab` | `~/Documents/Workspace/homelab` | Terraform (VM provisioning) + Ansible (generic install/baseline configuration) |
-| `party-time` | `~/Documents/Workspace/party-time` | Go/Gin backend, two React SPAs, the deploy playbook and nginx vhost configs, this document (`ops/AGENT.md`), and the companion skills |
+| `homelab` | `~/Documents/Workspace/homelab-workspace/repos/homelab` | Terraform (VM provisioning) + Ansible (generic install/baseline configuration) |
+| `party-time` | `~/Documents/Workspace/homelab-workspace/repos/party-time` | Go/Gin backend, two React SPAs, the deploy playbook and nginx vhost configs, this document (`ops/AGENT.md`), and the companion skills |
 | `party-time-ops` | `~/Documents/Workspace/party-time-ops` | **Archived.** Tombstone `README.md` only. |
 
 ### `homelab` — key files
@@ -230,7 +230,7 @@ on both edges reports the SHA just built before running the smoke checks.
 `deploy/nginx/*.conf`. Override flags: `--allow-dirty`, `--allow-branch`.
 
 ```bash
-cd ~/Documents/Workspace/party-time && ./deploy.sh
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time && ./deploy.sh
 ```
 
 The manual steps it wraps, if you need to run them individually:
@@ -238,7 +238,7 @@ The manual steps it wraps, if you need to run them individually:
 ### Step 1 — Build and test locally
 
 ```bash
-cd ~/Documents/Workspace/party-time && ./build.sh
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time && ./build.sh
 ```
 
 `build.sh` runs the full test suite **before** building anything and exits non-zero
@@ -274,8 +274,8 @@ The playbook now lives in `party-time` itself and needs `homelab`'s
 via `ansible-galaxy`):
 
 ```bash
-cd ~/Documents/Workspace/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD
 ```
 
@@ -296,10 +296,10 @@ already-built static files is harmless and fast, and only the `geerlingguy.nginx
 role's vhost application actually needs to happen:
 
 ```bash
-cd ~/Documents/Workspace/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD --limit tag_nginx            # public edge
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD --limit tag_nginx_internal   # admin edge
 ```
 
@@ -424,8 +424,8 @@ Edit `deploy/nginx/public.conf` (public) or `deploy/nginx/admin.conf` (admin)
 in this repo, then:
 
 ```bash
-cd ~/Documents/Workspace/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD --limit tag_nginx
 ```
 
@@ -558,8 +558,8 @@ deploy got.
 Redirect to a log file and watch the file instead:
 
 ```bash
-cd ~/Documents/Workspace/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   nohup ansible-playbook deploy/party-time.yml \
   -e party_time_repo=$PWD \
   > /tmp/party-time-deploy.log 2>&1 &

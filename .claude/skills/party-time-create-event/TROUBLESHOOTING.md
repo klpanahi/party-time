@@ -42,7 +42,7 @@ Rebuild and redeploy from the party-time repo:
 
 ```bash
 cd /path/to/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD
 ```
 

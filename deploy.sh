@@ -119,7 +119,7 @@ set +e
 # from party-time's root makes that lookup fail, the inventory silently
 # parses as empty, and every play gets skipped with no error — see the
 # PLAY RECAP check below for why that used to look like a false success.
-(cd ~/Documents/Workspace/homelab/ansible && ANSIBLE_CONFIG=./ansible.cfg \
+(cd ~/Documents/Workspace/homelab-workspace/repos/homelab/ansible && ANSIBLE_CONFIG=./ansible.cfg \
   ansible-playbook "${ANSIBLE_ARGS[@]}") > "$LOG_FILE" 2>&1
 ANSIBLE_EXIT=$?
 set -e

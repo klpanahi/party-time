@@ -5,7 +5,7 @@ description: Deploys the party-time app to the homelab with ./deploy.sh, which b
 
 # Deploy party-time
 
-One command: `./deploy.sh`, run from `~/Documents/Workspace/party-time` on
+One command: `./deploy.sh`, run from `~/Documents/Workspace/homelab-workspace/repos/party-time` on
 `main`. It wraps the build, the playbook, and verification, and refuses to
 run under conditions that would make "success" a lie.
 
@@ -34,7 +34,7 @@ Hosts (Ansible reaches them by IP via the Proxmox dynamic inventory):
 ## The command
 
 ```bash
-cd ~/Documents/Workspace/party-time
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
 ./deploy.sh                 # normal deploy
 ./deploy.sh --nginx-only    # fast path for an nginx-vhost-only change
 ./deploy.sh --allow-dirty   # override the dirty-tree refusal
