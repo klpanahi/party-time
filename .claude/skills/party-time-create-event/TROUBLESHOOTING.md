@@ -23,7 +23,7 @@ and every event update returns this 400.
 Confirm on the docker VM:
 
 ```bash
-ssh ubuntu@docker.local 'docker exec party-time-admin ls /usr/share/zoneinfo'
+ssh ubuntu@docker.home.arpa 'docker exec party-time-admin ls /usr/share/zoneinfo'
 ```
 
 `No such file or directory` confirms it.
@@ -53,15 +53,17 @@ succeeds would not catch it either unless it runs inside that image.
 
 ## 404 on `/admin`
 
-nginx served the SPA instead of proxying. Check `nginx_upstreams` and the
-`location /admin` block in `deploy/nginx/admin.conf` in this repo, and that
-the admin backend is up on `docker.local:8081`.
+nginx served the SPA instead of proxying. Check `deploy/nginx/admin-upstream.conf`
+(the `$admin_backend` map) and the `location /admin` block in
+`deploy/nginx/admin.conf` in this repo, and that the admin backend is up on
+`docker.home.arpa:8081`.
 
 ## 502 / 504
 
-nginx cannot reach the upstream. Either the `party-time-admin` container is
-down, or `docker.local` is not resolving from the nginx VM — mDNS needs
-`avahi-daemon` and `libnss-mdns`, installed by `site.yml`.
+nginx cannot reach the backend. Either the `party-time-admin` container is
+down, or `docker.home.arpa` is not resolving from nginx-internal: check
+`/var/log/nginx/error.log` for `could not be resolved` and the router VM's
+dnsmasq (homelab `docs/internal-dns.md`).
 
 ## Empty events list after a successful create
 

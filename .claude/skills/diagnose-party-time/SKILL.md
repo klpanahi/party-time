@@ -1,12 +1,13 @@
 ---
 name: diagnose-party-time
-description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, mDNS name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com partytime.home.arpa, or party-time.nginx-internal.local is not responding.
+description: Diagnoses party-time outages by walking the request path top-down — Cloudflare tunnel, nginx, home.arpa name resolution, Docker containers, then the app itself — proving each layer with a command before moving to the next. Use when the user says party-time is down, broken, or "not working"; reports a 502 or "Bad Gateway", a blank page, "Failed to fetch", "Unexpected token '<'", or any page-load error; says an invite link is not working or shows raw JSON; says the admin UI or dashboard will not load; or asks why party-time.panahi-systems.com or partytime.home.arpa is not responding.
 ---
 
 # Diagnose party-time
 
-Most party-time outages are **name resolution**, not application bugs. nginx points at
-`docker.local` by mDNS name, and that name has broken in several different ways.
+Most party-time outages have been **name resolution**, not application bugs. nginx
+reaches the backend as `docker.home.arpa` through the router's DNS. (It used to be
+`docker.local` over mDNS, which broke in several ways and was retired.)
 Work top-down through the layers and prove each one before moving on.
 
 ## Rules
@@ -42,11 +43,13 @@ Admin:   LAN → partytime.home.arpa (router :80) → nginx-internal (10.10.10.4
 | nginx-internal | 10.10.10.40 (`nginx-internal.home.arpa`) | nginx (admin UI) |
 
 Public URL: `https://party-time.panahi-systems.com`  Admin URL: `http://partytime.home.arpa/`
-SSH to any VM as `ubuntu@<name>.home.arpa` (from a Mac, needs the local route to
-10.10.10.0/24 via 192.168.68.100).
+SSH: `ubuntu@docker.home.arpa` (VM), `root@nginx-cloudflared.home.arpa` and
+`root@nginx-internal.home.arpa` (LXCs, no ubuntu user). From a Mac this needs the
+local route to 10.10.10.0/24 via 192.168.68.100.
 
-> **The nginx upstreams reference `docker.home.arpa` by name**, resolved once at nginx
-> config load through the router's dnsmasq. Name resolution is the most common root cause.
+> **The nginx vhosts reach `docker.home.arpa` by name**, resolved per request through
+> the router's dnsmasq (`proxy_pass $public_backend`). Name resolution is still the
+> most common root cause, but it no longer stops nginx from starting.
 
 ## Step 0 — Is the running code even the code you're debugging?
 
@@ -90,43 +93,42 @@ point at completely different machines.
 
 ## Step 2 — Is it just name resolution on the client?
 
-If the user cannot reach `party-time.nginx-internal.local` (the admin app hostname)
-at all, check the Mac first before blaming the server.
+If the user cannot reach `partytime.home.arpa` (the admin app) at all, check the
+Mac first before blaming the server:
 
 ```bash
-dscacheutil -q host -a name party-time.nginx-internal.local
-dscacheutil -q host -a name nginx-internal.local
-dscacheutil -q host -a name docker.local
-dscacheutil -q host -a name nginx-cloudflared.local
+dig +short partytime.home.arpa          # router.home.arpa -> 192.168.68.100
+dig +short docker.home.arpa             # 10.10.10.20
+scutil --dns | grep nameserver          # should list 192.168.68.100
 ```
 
-If `nginx-internal.local` (the VM's own name) resolves but
-`party-time.nginx-internal.local` does not, the VM is fine but its
-`party-time-mdns-alias` systemd unit has died — see `ops/AGENT.md` hazard 6e.
-
-Compare **several** `.local` hosts at once. If *all* fail, the Mac is off the LAN/VPN or
-mDNS is dead locally. If only *some* fail, suspect an **avahi hostname conflict** →
-hand off to the **`fix-homelab-mdns`** skill.
+If nothing in `home.arpa` resolves, the Mac is off the LAN/VPN or isn't using the
+router's DNS (`homelab/docs/internal-dns.md`), or the router VM is down. There
+are no `.local` names any more: mDNS was retired on 2026-10-30.
 
 ## Step 3 — Is nginx up?
 
+The nginx guests are LXCs: SSH in as `root`, not `ubuntu`.
+
 ```bash
-ssh ubuntu@192.168.68.77 'systemctl is-active nginx; sudo nginx -t'
+ssh root@nginx-cloudflared.home.arpa 'systemctl is-active nginx; nginx -t'
 ```
 
-> **KEY FAILURE MODE — nginx resolves upstream hostnames ONCE at config-parse time and
-> REFUSES TO START if resolution fails.**
+> **nginx refuses to start if a name in an `upstream {}` block or a literal
+> `proxy_pass` doesn't resolve at config load.** That kept the public site down
+> for three days after an Oct 23 reboot. Since 2026-10-30 the vhosts proxy to
+> `$public_backend` / `$admin_backend`, resolved per request through
+> `/etc/nginx/conf.d/resolver.conf`, so this should no longer happen.
 >
-> Symptom: `is-active` → `failed`, and `nginx -t` → `host not found in upstream "docker.local:8080"`.
->
-> This means a **transient** DNS blip leaves nginx **permanently down** long after the
-> blip is over. Fix resolution first (Step 4 / `fix-homelab-mdns`), *then*
-> `sudo systemctl start nginx`. Restarting before resolution works will just fail again.
+> If `nginx -t` says `host not found in upstream "..."`, a static name has crept
+> back in: find it (`grep -rn "server \|proxy_pass http" /etc/nginx/`), move it
+> to the variable form, then `systemctl restart nginx`. See `ops/AGENT.md`
+> hazard 7.
 
 Also check cloudflared on the same host:
 
 ```bash
-ssh ubuntu@192.168.68.77 'systemctl is-active cloudflared; sudo journalctl -u cloudflared -n 20 --no-pager'
+ssh root@nginx-cloudflared.home.arpa 'systemctl is-active cloudflared; journalctl -u cloudflared -n 20 --no-pager'
 ```
 
 > `Unable to reach the origin service ... dial tcp 127.0.0.1:80: connect: connection refused`
@@ -135,7 +137,7 @@ ssh ubuntu@192.168.68.77 'systemctl is-active cloudflared; sudo journalctl -u cl
 ## Step 4 — Can nginx reach the backend?
 
 ```bash
-ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa; resolvectl domain; curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://docker.home.arpa:8080/invites'
+ssh root@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa; resolvectl domain; cat /etc/nginx/conf.d/resolver.conf; curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://docker.home.arpa:8080/invites'
 ```
 
 (Same on `nginx-internal.home.arpa` against `docker.home.arpa:8081` for the admin path.)
@@ -146,23 +148,26 @@ ssh ubuntu@nginx-cloudflared.home.arpa 'getent hosts docker.home.arpa; resolvect
 Then check for a stale hardcoded override:
 
 ```bash
-ssh ubuntu@192.168.68.77 'grep -n local /etc/hosts'
+ssh root@nginx-cloudflared.home.arpa 'grep -n home.arpa /etc/hosts'
 ```
 
-> `nsswitch.conf` lists `files` **before** `mdns4_minimal`, so a line in `/etc/hosts`
-> silently overrides mDNS **forever**. This has actually happened: a stale
-> `192.168.68.89 docker.local` pinned a dead IP after a DHCP change, and mDNS was working
-> perfectly the whole time.
+> `nsswitch.conf` lists `files` **before** `dns`, so a line in `/etc/hosts` silently
+> overrides DNS **forever**, and Ansible doesn't manage that file. This has
+> happened: a stale `192.168.68.89 docker.local` pinned a dead IP after a DHCP
+> change.
 
 And read nginx's own error log:
 
 ```bash
-ssh ubuntu@192.168.68.77 'sudo tail -20 /var/log/nginx/error.log'
+ssh root@nginx-cloudflared.home.arpa 'tail -20 /var/log/nginx/error.log'
 ```
 
-Look for `connect() failed (113: No route to host) while connecting to upstream` — and note
-**the upstream IP it actually used**. That IP is the evidence: compare it to the docker
-VM's real address.
+- `docker.home.arpa could not be resolved` → nginx is fine; the router's DNS is
+  down or unreachable. Check the router VM (`ssh ubuntu@router.home.arpa
+  'systemctl status dnsmasq'`). nginx recovers by itself once DNS answers.
+- `connect() failed (113: No route to host) while connecting to upstream` → note
+  **the upstream IP it actually used** and compare it to the docker VM's real
+  address.
 
 ## Step 5 — Are the containers healthy?
 
@@ -224,6 +229,6 @@ ssh ubuntu@docker.home.arpa 'source /opt/party-time/.env.prod; docker exec party
 
 | Finding | Next |
 |---|---|
-| `.local` names resolve wrongly / inconsistently, avahi conflict | **`fix-homelab-mdns`** skill |
+| `home.arpa` names don't resolve anywhere | Router VM / dnsmasq — homelab `docs/internal-dns.md` |
 | Infrastructure healthy, code is stale or wrong | **`deploy-party-time`** skill |
 | Need to confirm the admin write path end to end after a fix | **`party-time-create-event`** skill |

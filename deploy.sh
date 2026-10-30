@@ -101,7 +101,6 @@ ANSIBLE_ARGS=(
   -e "party_time_repo=$ROOT"
   -e "party_time_public_url=$PARTY_TIME_PUBLIC_URL"
   -e "party_time_admin_url=$PARTY_TIME_ADMIN_URL"
-  -e "party_time_admin_legacy_host=$PARTY_TIME_ADMIN_LEGACY_HOST"
 )
 [ "$ALLOW_DIRTY" = true ]  && ANSIBLE_ARGS+=(-e allow_dirty=true)
 [ "$ALLOW_BRANCH" = true ] && ANSIBLE_ARGS+=(-e allow_branch=true)
@@ -231,7 +230,7 @@ else
         ;;
       *)
         echo "REFUSING: invite_url='$INVITE_URL' does not start with '$PARTY_TIME_PUBLIC_URL'." >&2
-        echo "  INVITEE_BASE_URL likely didn't reach the backend — check /opt/party-time/.env on docker.local." >&2
+        echo "  INVITEE_BASE_URL likely didn't reach the backend — check /opt/party-time/.env on docker.home.arpa." >&2
         exit 1
         ;;
     esac

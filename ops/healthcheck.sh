@@ -47,10 +47,13 @@ fail() { FAILED=$((FAILED + 1)); printf '%sFAIL%s  %s\n' "$C_FAIL" "$C_OFF" "$1"
 
 section() { printf '\n%s-- %s%s\n' "$C_HEAD" "$1" "$C_OFF"; }
 
-# Run a command on a VM over SSH. Never interactive, never hangs.
+# Run a command on a guest over SSH. Never interactive, never hangs. The nginx
+# guests are LXCs with no ubuntu user, so they take root; the VMs take ubuntu.
 remote() {
     local host="$1"; shift
-    ssh "${SSH_OPTS[@]}" "ubuntu@${host}" "$@" 2>/dev/null
+    local user=ubuntu
+    case "$host" in nginx-*) user=root ;; esac
+    ssh "${SSH_OPTS[@]}" "${user}@${host}" "$@" 2>/dev/null
 }
 
 # Collapse multi-line command output onto one line for tidy reporting.

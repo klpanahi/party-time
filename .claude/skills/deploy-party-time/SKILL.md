@@ -124,7 +124,7 @@ check by hand — a killed or timed-out deploy can leave nothing applied while
 looking like it ran:
 
 ```bash
-ssh ubuntu@docker.local 'docker ps --format "{{.Names}}\t{{.Status}}"; docker images party-time-backend --format "id={{.ID}} created={{.CreatedSince}}"'
+ssh ubuntu@docker.home.arpa 'docker ps --format "{{.Names}}\t{{.Status}}"; docker images party-time-backend --format "id={{.ID}} created={{.CreatedSince}}"'
 ```
 
 Containers should show seconds/minutes of uptime and a newly created image.
@@ -134,11 +134,11 @@ Hours or days old means the deploy did not apply.
 
 - **`.env.prod` missing on the docker VM** — expected fail-fast. Do not
   create or copy it. Tell the user; the file is theirs to place.
-- **mDNS names fail to resolve mid-deploy** (`docker.local`,
-  `nginx-internal.local`) — known recurring fault; see the
-  **`fix-homelab-mdns`** skill. Ansible itself is unaffected (it connects by
-  IP via the Proxmox dynamic inventory); only nginx upstreams and your own
-  `curl`/`ssh` by name break.
+- **`home.arpa` names fail to resolve** — the router VM's dnsmasq is down
+  (homelab `docs/internal-dns.md`). Ansible itself is unaffected (it connects
+  by IP via the Proxmox dynamic inventory). nginx stays up and returns 502 until
+  DNS is back; your own `curl`/`ssh` by name break. mDNS (`.local`) no longer
+  exists in the homelab.
 - **Playbook process died / log ends mid-task** — assume nothing applied,
   verify freshness on the VM (above), then re-run `./deploy.sh`. Re-running
   is safe.
