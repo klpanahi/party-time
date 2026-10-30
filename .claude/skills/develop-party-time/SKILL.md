@@ -5,7 +5,7 @@ description: Implements features, changes, and bug fixes in the party-time appli
 
 # Developing party-time
 
-Three layers, one repo (`~/Documents/Workspace/party-time`). Deploy, nginx vhosts,
+Three layers, one repo (`~/Documents/Workspace/homelab-workspace/repos/party-time`). Deploy, nginx vhosts,
 and ops docs live here too now — one feature is one branch is one PR. Read
 "Traps" before writing code — the route-duplication trap in particular will
 let a change pass every local test and still be untested in CI.
@@ -41,7 +41,7 @@ Backend runs once as two containers: `ADMIN_ENABLED=false` (public, `:8080`) and
 ## Local development
 
 ```bash
-cd ~/Documents/Workspace/party-time
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
 ./run_local.sh              # postgres + backend (air) + both UIs, DB reset + reseed every run
 ./run_local.sh --no-reset   # restart without wiping state you just created through the UI
 ```

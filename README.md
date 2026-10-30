@@ -112,7 +112,7 @@ edges reports the SHA just deployed, and runs the existing smoke checks. Use
 playbook to the two nginx plays via `--tags nginx`).
 
 ```bash
-cd ~/Documents/Workspace/party-time
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
 ./deploy.sh
 ```
 
@@ -123,8 +123,8 @@ single source of truth for both edges), and the `ops/incident-log.md` /
 `ops/healthcheck.sh` companions. Direct invocation, if you need it:
 
 ```bash
-cd ~/Documents/Workspace/party-time
-ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+cd ~/Documents/Workspace/homelab-workspace/repos/party-time
+ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
   ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD
 ```
 

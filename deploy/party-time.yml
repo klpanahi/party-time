@@ -21,7 +21,7 @@
 # with ANSIBLE_CONFIG pointed at homelab's ansible.cfg for roles_path to
 # resolve, from the party-time repo so `$PWD` is party_time_repo:
 #
-#   ANSIBLE_CONFIG=~/Documents/Workspace/homelab/ansible/ansible.cfg \
+#   ANSIBLE_CONFIG=~/Documents/Workspace/homelab-workspace/repos/homelab/ansible/ansible.cfg \
 #     ansible-playbook deploy/party-time.yml -e party_time_repo=$PWD \
 #       -e party_time_public_url=https://party-time.panahi-systems.com \
 #       -e party_time_admin_url=http://partytime.home.arpa \
