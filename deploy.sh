@@ -101,7 +101,6 @@ ANSIBLE_ARGS=(
   -e "party_time_repo=$ROOT"
   -e "party_time_public_url=$PARTY_TIME_PUBLIC_URL"
   -e "party_time_admin_url=$PARTY_TIME_ADMIN_URL"
-  -e "party_time_admin_legacy_host=$PARTY_TIME_ADMIN_LEGACY_HOST"
 )
 [ "$ALLOW_DIRTY" = true ]  && ANSIBLE_ARGS+=(-e allow_dirty=true)
 [ "$ALLOW_BRANCH" = true ] && ANSIBLE_ARGS+=(-e allow_branch=true)
