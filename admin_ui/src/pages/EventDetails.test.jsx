@@ -790,3 +790,220 @@ describe('AddInviteeModal', () => {
     await screen.findByText('new contact failed')
   })
 })
+
+describe('Customizable invite on launch', () => {
+  async function openLaunchModal() {
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    await userEvent.click(screen.getByRole('button', { name: /launch event/i }))
+    return within(screen.getByRole('heading', { name: /launch event/i }).closest('.modal'))
+  }
+
+  it('prefills an editable draft with a {name} placeholder and the link box ticked', async () => {
+    const modal = await openLaunchModal()
+    const draft = modal.getByLabelText(/invite message/i).value
+    expect(draft).toMatch(/^Hey \{name\}!/)
+    expect(draft).toContain('Summer Party')
+    expect(draft).toContain('Central Park')
+    expect(draft).toContain('A great outdoor party.')
+    expect(modal.getByLabelText(/include invite link/i)).toBeChecked()
+  })
+
+  it('leaves the description paragraph out of the draft when it is blank', async () => {
+    server.use(
+      http.get(`${BASE}/events/:id`, () =>
+        HttpResponse.json({ ...defaultEvent, event: { ...defaultEvent.event, description: '' } })
+      )
+    )
+    const modal = await openLaunchModal()
+    expect(modal.getByLabelText(/invite message/i).value).toMatch(/Central Park\.$/)
+  })
+
+  it('sends the edited message and link choice to the launch endpoint', async () => {
+    let body
+    server.use(
+      http.post(`${BASE}/events/:id/launch`, async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    const modal = await openLaunchModal()
+    const textarea = modal.getByLabelText(/invite message/i)
+    await userEvent.clear(textarea)
+    await userEvent.type(textarea, 'Party Saturday, be there')
+    await userEvent.click(modal.getByLabelText(/include invite link/i))
+    await userEvent.click(modal.getByRole('button', { name: /send invites/i }))
+
+    await screen.findByText('Launched')
+    expect(body).toEqual({ content: 'Party Saturday, be there', include_link: false })
+  })
+
+  it('disables "Send Invites" when the message is blank', async () => {
+    const modal = await openLaunchModal()
+    await userEvent.clear(modal.getByLabelText(/invite message/i))
+    expect(modal.getByRole('button', { name: /send invites/i })).toBeDisabled()
+  })
+
+  it('offers the launch message to an invitee added right after launching', async () => {
+    const modal = await openLaunchModal()
+    const textarea = modal.getByLabelText(/invite message/i)
+    await userEvent.clear(textarea)
+    await userEvent.type(textarea, 'Custom launch text')
+    await userEvent.click(modal.getByLabelText(/include invite link/i))
+    await userEvent.click(modal.getByRole('button', { name: /send invites/i }))
+    await screen.findByText('Launched')
+
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /bob jones/i }))
+    const addModal = within(screen.getByRole('heading', { name: /add invitee/i }).closest('.modal'))
+    expect(addModal.getByLabelText(/invite message/i).value).toBe('Custom launch text')
+    expect(addModal.getByLabelText(/include invite link/i)).not.toBeChecked()
+  })
+})
+
+describe('Send a Message include-link box', () => {
+  const launchedEvent = { ...defaultEvent, event: { ...defaultEvent.event, status: 'launched' } }
+
+  it('sends include_link true by default and false once unticked', async () => {
+    const bodies = []
+    server.use(
+      http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)),
+      http.post(`${BASE}/events/:id/messages`, async ({ request }) => {
+        bodies.push(await request.json())
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    renderDetails()
+    await screen.findByDisplayValue('Summer Party')
+    const box = screen.getByLabelText(/include invite link/i)
+    expect(box).toBeChecked()
+
+    await userEvent.type(screen.getByPlaceholderText(/type your message/i), 'Hi {{name}')
+    await userEvent.click(screen.getByRole('button', { name: /^send$/i }))
+
+    await userEvent.type(screen.getByPlaceholderText(/type your message/i), 'No link here')
+    await userEvent.click(screen.getByLabelText(/include invite link/i))
+    await userEvent.click(screen.getByRole('button', { name: /^send$/i }))
+
+    expect(bodies).toEqual([
+      { content: 'Hi {name}', include_link: true },
+      { content: 'No link here', include_link: false },
+    ])
+    // The box resets after a send so the next message starts with the link again.
+    expect(screen.getByLabelText(/include invite link/i)).toBeChecked()
+  })
+})
+
+describe('AddInviteeModal on a launched event', () => {
+  const launchedEvent = {
+    ...defaultEvent,
+    event: {
+      ...defaultEvent.event,
+      status: 'launched',
+      invite_message: 'Hi {name}, join us!',
+      invite_include_link: true,
+    },
+  }
+
+  function captureInvite() {
+    const captured = {}
+    server.use(
+      http.get(`${BASE}/events/:id`, () => HttpResponse.json(launchedEvent)),
+      http.post(`${BASE}/events/:id/invites`, async ({ request }) => {
+        captured.body = await request.json()
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    return captured
+  }
+
+  async function openModal() {
+    renderDetails()
+    await screen.findByText('Alice Smith')
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await screen.findByRole('button', { name: /bob jones/i })
+    return within(screen.getByRole('heading', { name: /add invitee/i }).closest('.modal'))
+  }
+
+  it('picking a contact opens a compose step instead of sending straight away', async () => {
+    const captured = captureInvite()
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+
+    expect(captured.body).toBeUndefined()
+    expect(modal.getByText('Bob Jones')).toBeInTheDocument()
+    expect(modal.getByLabelText(/invite message/i).value).toBe('Hi {name}, join us!')
+    expect(modal.getByLabelText(/include invite link/i)).toBeChecked()
+  })
+
+  it('"Send Invite" posts the contact with the edited message and link choice', async () => {
+    const captured = captureInvite()
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+
+    const textarea = modal.getByLabelText(/invite message/i)
+    await userEvent.clear(textarea)
+    await userEvent.type(textarea, 'Late but welcome')
+    await userEvent.click(modal.getByLabelText(/include invite link/i))
+    await userEvent.click(modal.getByRole('button', { name: /send invite/i }))
+
+    expect(captured.body).toEqual({ contact_id: 'contact-def', message: 'Late but welcome', include_link: false })
+    expect(screen.queryByRole('heading', { name: /add invitee/i })).not.toBeInTheDocument()
+  })
+
+  it('"Back" returns to the contact list', async () => {
+    captureInvite()
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await userEvent.click(modal.getByRole('button', { name: /back/i }))
+    expect(modal.getByPlaceholderText(/search by name or phone/i)).toBeInTheDocument()
+  })
+
+  it('disables "Send Invite" when the message is blank', async () => {
+    captureInvite()
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await userEvent.clear(modal.getByLabelText(/invite message/i))
+    expect(modal.getByRole('button', { name: /send invite/i })).toBeDisabled()
+  })
+
+  it('a new contact goes through the same compose step', async () => {
+    const captured = captureInvite()
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /new contact/i }))
+    await userEvent.type(modal.getByLabelText(/first name/i), 'Carol')
+    await userEvent.type(modal.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.click(modal.getByRole('button', { name: /next: review invite/i }))
+    await userEvent.click(modal.getByRole('button', { name: /send invite/i }))
+
+    expect(captured.body).toEqual({
+      first_name: 'Carol', last_name: '', phone_number: '+15550009999',
+      message: 'Hi {name}, join us!', include_link: true,
+    })
+  })
+
+  it('falls back to the default draft for an event launched before custom invites', async () => {
+    server.use(
+      http.get(`${BASE}/events/:id`, () =>
+        HttpResponse.json({ ...defaultEvent, event: { ...defaultEvent.event, status: 'launched' } })
+      )
+    )
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    expect(modal.getByLabelText(/invite message/i).value).toMatch(/^Hey \{name\}!/)
+    expect(modal.getByLabelText(/include invite link/i)).toBeChecked()
+  })
+
+  it('a draft event still adds the contact directly, with no message', async () => {
+    let body
+    server.use(
+      http.post(`${BASE}/events/:id/invites`, async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    expect(body).toEqual({ contact_id: 'contact-def' })
+  })
+})

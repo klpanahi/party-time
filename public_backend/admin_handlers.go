@@ -2,9 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -279,9 +282,11 @@ func (env *Env) adminAddInvitee(c *gin.Context) {
 			var firstName string
 			_ = env.db.QueryRow("SELECT first_name FROM contacts WHERE id = $1", contactID).Scan(&firstName)
 			inviteURL := fmt.Sprintf("%s/invite/%s", env.inviteeBase, inviteID)
-			loc, _ := time.LoadLocation("America/Chicago")
-			formattedDate := event.Date.In(loc).Format("Monday, January 2, 2006 at 3:04 PM")
-			content := buildInviteMessage(firstName, event.Event_Name, formattedDate, event.Location, event.Description, inviteURL)
+			template := defaultInviteTemplate(event)
+			if req.Message != nil {
+				template = *req.Message
+			}
+			content := renderMessage(template, firstName, inviteURL, boolOr(req.IncludeLink, true))
 			_, _ = env.db.Exec(
 				`INSERT INTO texts (contact_id, content, event_id, status) VALUES ($1, $2, $3, 'pending')`,
 				contactID, content, eventID,
@@ -313,14 +318,18 @@ func (env *Env) adminSendMessage(c *gin.Context) {
 		return
 	}
 
-	// Pre-build per-invitee content so each text includes the recipient's personal RSVP link.
+	// Pre-build per-invitee content: {name} becomes the recipient's first name
+	// and, unless the admin unticked it, their personal RSVP link is appended.
+	// Mirrors renderMessage, in SQL so the whole broadcast is one statement.
 	insertTexts := `
 		INSERT INTO texts (contact_id, message_id, event_id, status, content)
 		SELECT i.contact_id, $1, $2, 'pending',
-		       $3 || E'\n\nManage your RSVP here: ' || $4 || '/invite/' || i.id
+		       replace($3, '{name}', c.first_name)
+		       || CASE WHEN $5 THEN E'\n\nManage your RSVP here: ' || $4 || '/invite/' || i.id ELSE '' END
 		FROM invites i
+		JOIN contacts c ON c.id = i.contact_id
 		WHERE i.event_id = $2 AND i.attending != 'Declined'`
-	result, err := env.db.Exec(insertTexts, messageID, eventID, req.Content, env.inviteeBase)
+	result, err := env.db.Exec(insertTexts, messageID, eventID, req.Content, env.inviteeBase, boolOr(req.IncludeLink, true))
 	if err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -333,6 +342,18 @@ func (env *Env) adminSendMessage(c *gin.Context) {
 
 func (env *Env) adminLaunchEvent(c *gin.Context) {
 	eventID := c.Param("id")
+
+	// The body is optional; an empty one launches with the default invite.
+	var req LaunchEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Content != nil && strings.TrimSpace(*req.Content) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invite message cannot be empty"})
+		return
+	}
+	includeLink := boolOr(req.IncludeLink, true)
 
 	event := Event{}
 	if err := env.db.Get(&event, "SELECT * FROM events WHERE id = $1", eventID); err != nil {
@@ -366,12 +387,14 @@ func (env *Env) adminLaunchEvent(c *gin.Context) {
 		return
 	}
 
-	loc, _ := time.LoadLocation("America/Chicago")
-	formattedDate := event.Date.In(loc).Format("Monday, January 2, 2006 at 3:04 PM")
+	template := defaultInviteTemplate(event)
+	if req.Content != nil {
+		template = *req.Content
+	}
 
 	for _, row := range rows {
 		inviteURL := fmt.Sprintf("%s/invite/%s", env.inviteeBase, row.InviteID)
-		content := buildInviteMessage(row.FirstName, event.Event_Name, formattedDate, event.Location, event.Description, inviteURL)
+		content := renderMessage(template, row.FirstName, inviteURL, includeLink)
 		if _, err := env.db.Exec(
 			`INSERT INTO texts (contact_id, content, event_id, status) VALUES ($1, $2, $3, 'pending')`,
 			row.ContactID, content, eventID,
@@ -382,7 +405,11 @@ func (env *Env) adminLaunchEvent(c *gin.Context) {
 		}
 	}
 
-	if _, err := env.db.Exec("UPDATE events SET status = 'launched' WHERE id = $1", eventID); err != nil {
+	// Remember the message as written so late additions start from the same draft.
+	if _, err := env.db.Exec(
+		"UPDATE events SET status = 'launched', invite_message = $2, invite_include_link = $3 WHERE id = $1",
+		eventID, req.Content, includeLink,
+	); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -440,8 +467,9 @@ func (env *Env) adminCancelEvent(c *gin.Context) {
 	// link is deliberately omitted: there is nothing left to respond to.
 	result, err := tx.Exec(
 		`INSERT INTO texts (contact_id, message_id, event_id, status, content)
-		 SELECT i.contact_id, $1, $2, 'pending', $3
+		 SELECT i.contact_id, $1, $2, 'pending', replace($3, '{name}', c.first_name)
 		 FROM invites i
+		 JOIN contacts c ON c.id = i.contact_id
 		 WHERE i.event_id = $2 AND i.attending != 'Declined'`,
 		messageID, eventID, req.Content,
 	)
@@ -754,9 +782,37 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-func buildInviteMessage(firstName, eventName, formattedDate, location, description, inviteURL string) string {
+// rsvpLinkPrefix introduces the per-invitee link appended by renderMessage.
+// The broadcast query in adminSendMessage spells the same text out in SQL.
+const rsvpLinkPrefix = "\n\nManage your RSVP here: "
+
+// renderMessage turns an admin-written message into one recipient's text:
+// every {name} becomes their first name, and their RSVP link is appended when
+// includeLink is set.
+func renderMessage(template, firstName, inviteURL string, includeLink bool) string {
+	content := strings.ReplaceAll(template, "{name}", firstName)
+	if includeLink {
+		content += rsvpLinkPrefix + inviteURL
+	}
+	return content
+}
+
+// defaultInviteTemplate is the invite used when the admin doesn't supply one.
+// The admin UI builds the same draft (inviteDraft in EventDetails.jsx) for the
+// launch modal, so keep the two in step.
+func defaultInviteTemplate(event Event) string {
+	loc, _ := time.LoadLocation("America/Chicago")
+	formattedDate := event.Date.In(loc).Format("Monday, January 2, 2006 at 3:04 PM")
 	return fmt.Sprintf(
-		"Hey %s!\n\nYou're invited to %s on %s at %s.\n\n%s\n\nManage your RSVP here: %s",
-		firstName, eventName, formattedDate, location, description, inviteURL,
+		"Hey {name}!\n\nYou're invited to %s on %s at %s.\n\n%s",
+		event.Event_Name, formattedDate, event.Location, event.Description,
 	)
+}
+
+// boolOr dereferences an optional JSON boolean, using def when it was omitted.
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
 }

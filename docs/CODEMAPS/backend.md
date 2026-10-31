@@ -26,10 +26,10 @@ GET  /admin/events             → adminGetEvents        → events + RSVP count
 POST /admin/events             → adminCreateEvent      → INSERT events
 GET  /admin/events/:id         → adminGetEvent         → event + invitees joined
 PUT  /admin/events/:id         → adminUpdateEvent      → UPDATE events
-POST /admin/events/:id/invites → adminAddInvitee       → upsert contact + INSERT invite; if launched, queue invite text
-POST /admin/events/:id/messages → adminSendMessage     → INSERT message + INSERT texts for non-declined invitees
+POST /admin/events/:id/invites → adminAddInvitee       → upsert contact + INSERT invite; if launched, queue invite text (optional message/include_link)
+POST /admin/events/:id/messages → adminSendMessage     → INSERT message + INSERT texts for non-declined invitees ({name}, optional link)
 GET  /admin/events/:id/texts   → adminGetTexts         → texts JOIN contacts LEFT JOIN messages (status, error, provider_sid, sent_at)
-POST /admin/events/:id/launch  → adminLaunchEvent      → INSERT invite texts for all, UPDATE status='launched'
+POST /admin/events/:id/launch  → adminLaunchEvent      → INSERT invite texts for all (optional content/include_link), UPDATE status='launched' + invite_message
 POST /admin/texts/:id/resend   → adminResendText       → UPDATE texts failed→pending (409 if not failed)
 ```
 
@@ -50,7 +50,7 @@ starts when `TWILIO_*` is configured, else texts stay pending.
 ## Key Files
 ```
 public_backend/main.go            router setup, public handlers, Env struct, text-worker start
-public_backend/admin_handlers.go  admin route handlers + buildInviteMessage + adminResendText
+public_backend/admin_handlers.go  admin route handlers + renderMessage/defaultInviteTemplate + adminResendText
 public_backend/worker.go          background text worker: poll, claim, send, status transitions
 public_backend/sms.go             SMSSender interface + twilioSender + newTwilioSender
 public_backend/structs.go         all request/response/DB structs (139 lines)

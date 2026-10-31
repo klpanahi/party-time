@@ -446,6 +446,46 @@ func TestAddInvitee(t *testing.T) {
 			t.Errorf("message content missing first name; got: %s", texts[0].Content)
 		}
 	})
+
+	t.Run("late add uses the supplied message and link choice", func(t *testing.T) {
+		contactID := seedContact(t, "Gwen", "Late", "5550006667")
+		eventID := seedEvent(t, "Custom Late Party", futureDate(), "launched")
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/invites", eventID), map[string]any{
+			"contact_id":   contactID,
+			"message":      "Yo {name}, come by",
+			"include_link": false,
+		})
+		assertStatus(t, w, 201)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 1 {
+			t.Fatalf("want 1 text queued, got %d", len(texts))
+		}
+		if texts[0].Content != "Yo Gwen, come by" {
+			t.Errorf("content = %q, want the custom message with no link", texts[0].Content)
+		}
+	})
+
+	t.Run("message is ignored for a draft event", func(t *testing.T) {
+		contactID := seedContact(t, "Hal", "Draft", "5550006668")
+		eventID := seedEvent(t, "Still Draft", futureDate(), "draft")
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/invites", eventID), map[string]any{
+			"contact_id": contactID,
+			"message":    "should not be sent",
+		})
+		assertStatus(t, w, 201)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 0 {
+			t.Errorf("want no texts for a draft event, got %d", len(texts))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +558,79 @@ func TestLaunchEvent(t *testing.T) {
 			if !strings.Contains(msg, want) {
 				t.Errorf("message missing %q\nfull message:\n%s", want, msg)
 			}
+		}
+	})
+
+	t.Run("custom message replaces the default and expands {name}", func(t *testing.T) {
+		contactID := seedContact(t, "Kim", "Custom", "5551110001")
+		eventID := seedEvent(t, "Custom Launch", futureDate(), "draft")
+		inviteID := seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/launch", eventID),
+			map[string]any{"content": "Party at mine, {name}!"})
+		assertStatus(t, w, 200)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 1 {
+			t.Fatalf("want 1 text, got %d", len(texts))
+		}
+		want := "Party at mine, Kim!\n\nManage your RSVP here: http://test.local/invite/" + inviteID
+		if texts[0].Content != want {
+			t.Errorf("content = %q, want %q", texts[0].Content, want)
+		}
+
+		// The message is kept on the event so late additions can reuse it.
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		var detail EventDetail
+		mustDecode(t, w, &detail)
+		if detail.Event.InviteMessage == nil || *detail.Event.InviteMessage != "Party at mine, {name}!" {
+			t.Errorf("invite_message = %v, want the template as written", detail.Event.InviteMessage)
+		}
+		if !detail.Event.InviteIncludeLink {
+			t.Error("invite_include_link = false, want true (the default)")
+		}
+	})
+
+	t.Run("include_link false leaves the RSVP link out", func(t *testing.T) {
+		contactID := seedContact(t, "Lou", "NoLink", "5551110002")
+		eventID := seedEvent(t, "No Link Launch", futureDate(), "draft")
+		seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/launch", eventID),
+			map[string]any{"content": "See you there", "include_link": false})
+		assertStatus(t, w, 200)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 1 || texts[0].Content != "See you there" {
+			t.Fatalf("texts = %+v, want one text reading exactly %q", texts, "See you there")
+		}
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		var detail EventDetail
+		mustDecode(t, w, &detail)
+		if detail.Event.InviteIncludeLink {
+			t.Error("invite_include_link = true, want false as launched")
+		}
+	})
+
+	t.Run("blank custom message returns 400 and leaves the event a draft", func(t *testing.T) {
+		contactID := seedContact(t, "Max", "Blank", "5551110003")
+		eventID := seedEvent(t, "Blank Launch", futureDate(), "draft")
+		seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/launch", eventID),
+			map[string]any{"content": "   "})
+		assertStatus(t, w, 400)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d", eventID), nil)
+		var detail EventDetail
+		mustDecode(t, w, &detail)
+		if detail.Event.Status != "draft" {
+			t.Errorf("status = %q, want draft", detail.Event.Status)
 		}
 	})
 
@@ -633,6 +746,23 @@ func TestSendMessage(t *testing.T) {
 			if !strings.Contains(msg, want) {
 				t.Errorf("message missing %q\nfull message:\n%s", want, msg)
 			}
+		}
+	})
+
+	t.Run("expands {name} and can leave the link out", func(t *testing.T) {
+		contactID := seedContact(t, "Nia", "Plain", "5552220005")
+		eventID := seedEvent(t, "No Link Msg", futureDate(), "launched")
+		seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/messages", eventID),
+			map[string]any{"content": "Thanks {name}!", "include_link": false})
+		assertStatus(t, w, 201)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 1 || texts[0].Content != "Thanks Nia!" {
+			t.Fatalf("texts = %+v, want one text reading exactly %q", texts, "Thanks Nia!")
 		}
 	})
 
@@ -953,6 +1083,23 @@ func TestUpdateInvite(t *testing.T) {
 func TestCancelEvent(t *testing.T) {
 	cleanDB(t)
 	r := newRouter()
+
+	t.Run("expands {name} in the notice", func(t *testing.T) {
+		contactID := seedContact(t, "Vic", "Named", "5556660009")
+		eventID := seedEvent(t, "Named Cancel", futureDate(), "launched")
+		seedInvite(t, eventID, contactID)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/cancel", eventID),
+			map[string]any{"content": "Sorry {name}, it's off."})
+		assertStatus(t, w, 200)
+
+		w = do(t, r, "GET", fmt.Sprintf("/admin/events/%d/texts", eventID), nil)
+		var texts []TextWithContact
+		mustDecode(t, w, &texts)
+		if len(texts) != 1 || texts[0].Content != "Sorry Vic, it's off." {
+			t.Fatalf("texts = %+v, want one text reading exactly %q", texts, "Sorry Vic, it's off.")
+		}
+	})
 
 	t.Run("cancels the event and queues the supplied notice", func(t *testing.T) {
 		c1 := seedContact(t, "Tara", "Vail", "5556660001")
