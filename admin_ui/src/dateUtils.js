@@ -17,3 +17,12 @@ export function formatDateShort(isoString) {
     hour: 'numeric', minute: '2-digit',
   })
 }
+
+// Long format used in invite texts: "Monday, March 7, 2025 at 6:00 PM".
+// Matches the backend's default invite (defaultInviteTemplate in admin_handlers.go).
+export function formatDateLong(isoString) {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  if (isNaN(d)) return ''
+  return d.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
+}

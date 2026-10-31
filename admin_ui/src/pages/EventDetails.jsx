@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText, setTextStatus, cancelEvent, deleteEvent } from '../api'
-import { toDatetimeLocal, formatDateShort } from '../dateUtils'
+import { toDatetimeLocal, formatDateShort, formatDateLong } from '../dateUtils'
 
 const STATUS_LABELS = {
   draft: 'Draft',
@@ -14,6 +14,31 @@ const STATUS_LABELS = {
 function defaultCancellationMessage(event) {
   return `Unfortunately, ${event.name} on ${formatDateShort(event.date)} has been canceled. `
     + `Sorry for the inconvenience — we hope to see you at the next one!`
+}
+
+// Starting point for the invite text. Same shape as the backend's default
+// (defaultInviteTemplate in admin_handlers.go); {name} is filled in per invitee
+// by the backend, and the RSVP link is appended there when the box is ticked.
+function inviteDraft(event) {
+  const parts = [
+    `Hey {name}!`,
+    `You're invited to ${event.name} on ${formatDateLong(event.date)} at ${event.location}.`,
+  ]
+  if (event.description?.trim()) parts.push(event.description)
+  return parts.join('\n\n')
+}
+
+const NAME_HINT = 'Use {name} anywhere to insert each invitee\'s first name.'
+
+// The opt-out for the per-invitee RSVP link. Every message that can carry a
+// link starts with it on.
+function IncludeLinkCheckbox({ checked, onChange }) {
+  return (
+    <label className="checkbox-label">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Include invite link
+    </label>
+  )
 }
 
 export default function EventDetails() {
@@ -31,6 +56,7 @@ export default function EventDetails() {
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [messageContent, setMessageContent] = useState('')
+  const [messageIncludeLink, setMessageIncludeLink] = useState(true)
   const [sending, setSending] = useState(false)
   const [texts, setTexts] = useState(null)
   const [textsError, setTextsError] = useState(null)
@@ -93,11 +119,21 @@ export default function EventDetails() {
     setShowAddInvitee(false)
   }
 
-  async function handleLaunch() {
+  async function handleLaunch(message) {
     setLaunching(true)
     try {
-      await launchEvent(id)
-      setDetail((prev) => ({ ...prev, event: { ...prev.event, status: 'launched' } }))
+      await launchEvent(id, message)
+      // Mirror what the backend stored, so a late-added invitee is offered the
+      // same message without reloading the event.
+      setDetail((prev) => ({
+        ...prev,
+        event: {
+          ...prev.event,
+          status: 'launched',
+          invite_message: message.content,
+          invite_include_link: message.include_link,
+        },
+      }))
       setShowLaunch(false)
       // Refresh texts if the tab is already open
       if (activeTab === 'messages') {
@@ -151,8 +187,9 @@ export default function EventDetails() {
     if (!messageContent.trim()) return
     setSending(true)
     try {
-      await sendMessage(id, messageContent)
+      await sendMessage(id, messageContent, messageIncludeLink)
       setMessageContent('')
+      setMessageIncludeLink(true)
       // Refresh texts list if that tab is open
       if (activeTab === 'messages') {
         getTexts(id).then(setTexts).catch((e) => setTextsError(e.message))
@@ -208,6 +245,7 @@ export default function EventDetails() {
 
       {showLaunch && (
         <LaunchModal
+          event={event}
           inviteeCount={invitees.length}
           launching={launching}
           onConfirm={handleLaunch}
@@ -300,6 +338,7 @@ export default function EventDetails() {
             {showAddInvitee && (
               <AddInviteeModal
                 eventId={id}
+                event={event}
                 alreadyInvited={invitees.map((i) => i.contact_id)}
                 onAdded={handleInviteeAdded}
                 onClose={() => setShowAddInvitee(false)}
@@ -342,7 +381,10 @@ export default function EventDetails() {
           {!canceled && (
             <section className="card" ref={messageSectionRef}>
               <h2 className="card-title">Send a Message</h2>
-              <p className="hint">Message will be sent to all invitees who haven't declined. Each message will automatically include their personal RSVP link.</p>
+              <p className="hint">
+                Message will be sent to all invitees who haven't declined. With "Include invite link"
+                ticked, each message ends with their personal RSVP link. {NAME_HINT}
+              </p>
               <form onSubmit={handleSendMessage} className="message-form">
                 <textarea
                   ref={messageRef}
@@ -351,6 +393,7 @@ export default function EventDetails() {
                   placeholder="Type your message…"
                   rows={4}
                 />
+                <IncludeLinkCheckbox checked={messageIncludeLink} onChange={setMessageIncludeLink} />
                 <button type="submit" className="btn-primary" disabled={sending || !messageContent.trim()}>
                   {sending ? 'Sending…' : 'Send'}
                 </button>
@@ -513,25 +556,35 @@ function TextStatusBadge({ status }) {
   return <span className={`badge ${cls}`}>{status}</span>
 }
 
-function LaunchModal({ inviteeCount, launching, onConfirm, onClose }) {
+function LaunchModal({ event, inviteeCount, launching, onConfirm, onClose }) {
+  const [content, setContent] = useState(() => inviteDraft(event))
+  const [includeLink, setIncludeLink] = useState(true)
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <h2>Launch Event</h2>
         <p>
-          This will send invite messages to{' '}
+          This will send the invite below to{' '}
           <strong>{inviteeCount} {inviteeCount === 1 ? 'invitee' : 'invitees'}</strong>.
           The event status will change to <strong>Launched</strong> and cannot be undone.
         </p>
         {inviteeCount === 0 && (
           <p className="error-banner">Add at least one invitee before launching.</p>
         )}
+        <div className="form">
+          <label>Invite message
+            <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={7} autoFocus />
+          </label>
+          <p className="hint">{NAME_HINT}</p>
+          <IncludeLinkCheckbox checked={includeLink} onChange={setIncludeLink} />
+        </div>
         <div className="form-actions">
           <button className="btn-ghost" onClick={onClose} disabled={launching}>Cancel</button>
           <button
             className="btn-launch"
-            onClick={onConfirm}
-            disabled={launching || inviteeCount === 0}
+            onClick={() => onConfirm({ content, include_link: includeLink })}
+            disabled={launching || inviteeCount === 0 || !content.trim()}
           >
             {launching ? 'Launching…' : 'Send Invites'}
           </button>
@@ -562,6 +615,7 @@ function CancelModal({ event, inviteeCount, canceling, onConfirm, onClose }) {
               autoFocus
             />
           </label>
+          <p className="hint">{NAME_HINT}</p>
         </div>
         <div className="form-actions">
           <button className="btn-ghost" onClick={onClose} disabled={canceling}>Never mind</button>
@@ -599,13 +653,20 @@ function DeleteModal({ event, deleting, onConfirm, onClose }) {
   )
 }
 
-function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
+function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
   const [contacts, setContacts] = useState([])
   const [search, setSearch] = useState('')
   const [mode, setMode] = useState('pick')
   const [newForm, setNewForm] = useState({ first_name: '', last_name: '', phone_number: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  // On a launched event, adding someone texts them straight away, so the invite
+  // is reviewed first: picking a contact or filling the form leads to a compose
+  // step, prefilled with the message the event was launched with.
+  const launched = event.status === 'launched'
+  const [pending, setPending] = useState(null)
+  const [content, setContent] = useState(() => event.invite_message ?? inviteDraft(event))
+  const [includeLink, setIncludeLink] = useState(event.invite_include_link ?? true)
 
   useEffect(() => {
     getContacts().then(setContacts).catch((e) => setError(e.message))
@@ -621,10 +682,10 @@ function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
     )
   })
 
-  async function selectContact(contact) {
+  async function submit(data) {
     setSubmitting(true)
     try {
-      await addInvitee(eventId, { contact_id: contact.id })
+      await addInvitee(eventId, data)
       onAdded()
     } catch (e) {
       setError(e.message)
@@ -633,17 +694,26 @@ function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
     }
   }
 
-  async function handleCreateNew(ev) {
-    ev.preventDefault()
-    setSubmitting(true)
-    try {
-      await addInvitee(eventId, newForm)
-      onAdded()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setSubmitting(false)
+  function proceed(data, label) {
+    if (launched) {
+      setPending({ data, label })
+      setMode('compose')
+    } else {
+      submit(data)
     }
+  }
+
+  function selectContact(contact) {
+    proceed({ contact_id: contact.id }, `${contact.first_name} ${contact.last_name}`.trim())
+  }
+
+  function handleCreateNew(ev) {
+    ev.preventDefault()
+    proceed(newForm, `${newForm.first_name} ${newForm.last_name}`.trim())
+  }
+
+  function handleSendInvite() {
+    submit({ ...pending.data, message: content, include_link: includeLink })
   }
 
   return (
@@ -651,17 +721,46 @@ function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header-row">
           <h2>Add Invitee</h2>
-          <div className="tab-toggle">
-            <button className={mode === 'pick' ? 'tab active' : 'tab'} onClick={() => setMode('pick')}>
-              From Contacts
-            </button>
-            <button className={mode === 'new' ? 'tab active' : 'tab'} onClick={() => setMode('new')}>
-              New Contact
-            </button>
-          </div>
+          {mode !== 'compose' && (
+            <div className="tab-toggle">
+              <button className={mode === 'pick' ? 'tab active' : 'tab'} onClick={() => setMode('pick')}>
+                From Contacts
+              </button>
+              <button className={mode === 'new' ? 'tab active' : 'tab'} onClick={() => setMode('new')}>
+                New Contact
+              </button>
+            </div>
+          )}
         </div>
 
         {error && <div className="error-banner">{error}</div>}
+
+        {mode === 'compose' && (
+          <div className="form">
+            <p>
+              This event is already launched, so <strong>{pending.label}</strong> will be sent the
+              invite below as soon as they're added.
+            </p>
+            <label>Invite message
+              <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={7} autoFocus />
+            </label>
+            <p className="hint">{NAME_HINT}</p>
+            <IncludeLinkCheckbox checked={includeLink} onChange={setIncludeLink} />
+            <div className="form-actions">
+              <button type="button" className="btn-ghost" onClick={() => setMode('pick')} disabled={submitting}>
+                Back
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSendInvite}
+                disabled={submitting || !content.trim()}
+              >
+                {submitting ? 'Sending…' : 'Send Invite'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {mode === 'pick' && (
           <>
@@ -715,7 +814,7 @@ function AddInviteeModal({ eventId, alreadyInvited, onAdded, onClose }) {
             <div className="form-actions">
               <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
               <button type="submit" className="btn-primary" disabled={submitting}>
-                {submitting ? 'Adding…' : 'Add & Invite'}
+                {submitting ? 'Adding…' : launched ? 'Next: Review Invite' : 'Add & Invite'}
               </button>
             </div>
           </form>

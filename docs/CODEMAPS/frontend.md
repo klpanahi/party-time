@@ -10,8 +10,10 @@ App.jsx
 ├── / → EventSummary.jsx      — event list (upcoming/past) with RSVP counts; create event modal
 ├── /event/:id → EventDetails.jsx — auto-save event form; tabs: Invitees | Messages
 │     ├── Invitees tab: invitee table (RSVP, opened_at, invite link), add invitee modal
+│     │   (launched events: compose step to review the invite before it's sent)
 │     │   "Notify invitees of changes" quick-compose (launched events only)
-│     │   Send a Message form (non-declined invitees; auto-appends personal RSVP link)
+│     │   Send a Message form (non-declined invitees; "Include invite link" box, default on)
+│     ├── LaunchModal: editable invite draft ({name} placeholder) + include-link box
 │     └── Messages tab: texts log with expandable content rows
 └── /contacts → Contacts.jsx  — contact list, create/edit contact modal
 ```
@@ -27,8 +29,8 @@ getEvent(id)         GET  /admin/events/:id
 createEvent(data)    POST /admin/events
 updateEvent(id)      PUT  /admin/events/:id
 addInvitee(eid,data) POST /admin/events/:id/invites
-sendMessage(eid,msg) POST /admin/events/:id/messages
-launchEvent(eid)     POST /admin/events/:id/launch
+sendMessage(eid,msg,includeLink) POST /admin/events/:id/messages
+launchEvent(eid,msg) POST /admin/events/:id/launch  (msg = { content, include_link })
 getTexts(eid)        GET  /admin/events/:id/texts
 ```
 

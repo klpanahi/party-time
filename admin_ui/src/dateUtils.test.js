@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toDatetimeLocal, formatDateShort } from './dateUtils'
+import { toDatetimeLocal, formatDateShort, formatDateLong } from './dateUtils'
 
 describe('toDatetimeLocal', () => {
   it('returns empty string for null', () => {
@@ -46,5 +46,17 @@ describe('formatDateShort', () => {
     expect(result).toContain('2025')
     expect(result).toContain('Mar')
     expect(result).toContain('7')
+  })
+})
+
+describe('formatDateLong', () => {
+  it('returns empty string for missing or invalid input', () => {
+    expect(formatDateLong(null)).toBe('')
+    expect(formatDateLong('not-a-date')).toBe('')
+  })
+
+  it('formats like the backend invite: weekday, full date, "at" time', () => {
+    const d = new Date(2025, 2, 7, 18, 0) // Fri Mar 7 2025 6:00 PM local
+    expect(formatDateLong(d.toISOString())).toBe('Friday, March 7, 2025 at 6:00 PM')
   })
 })

@@ -23,8 +23,10 @@ export const updateEvent = (id, data) => request('PUT', `/events/${id}`, data)
 export const cancelEvent = (id, content) => request('POST', `/events/${id}/cancel`, { content })
 export const deleteEvent = (id) => request('DELETE', `/events/${id}`)
 export const addInvitee = (eventId, data) => request('POST', `/events/${eventId}/invites`, data)
-export const sendMessage = (eventId, content) => request('POST', `/events/${eventId}/messages`, { content })
-export const launchEvent = (eventId) => request('POST', `/events/${eventId}/launch`)
+export const sendMessage = (eventId, content, includeLink = true) =>
+  request('POST', `/events/${eventId}/messages`, { content, include_link: includeLink })
+// message: { content, include_link } — omit to launch with the backend's default invite.
+export const launchEvent = (eventId, message) => request('POST', `/events/${eventId}/launch`, message)
 export const getTexts = (eventId) => request('GET', `/events/${eventId}/texts`)
 export const resendText = (textId) => request('POST', `/texts/${textId}/resend`)
 export const setTextStatus = (textId, status) => request('PUT', `/texts/${textId}/status`, { status })

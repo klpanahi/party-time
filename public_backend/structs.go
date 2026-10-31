@@ -3,11 +3,11 @@ package main
 import "time"
 
 type Invite struct {
-	ID               string `db:"id"`
-	RSVP_Status      string `db:"attending"`
-	Additional_Guests int   `db:"additional_guests"`
-	Event_ID         string `db:"event_id"`
-	Contact_ID       string `db:"contact_id"`
+	ID                string `db:"id"`
+	RSVP_Status       string `db:"attending"`
+	Additional_Guests int    `db:"additional_guests"`
+	Event_ID          string `db:"event_id"`
+	Contact_ID        string `db:"contact_id"`
 }
 
 type Event struct {
@@ -23,6 +23,11 @@ type Event struct {
 	// on a column with no destination field.
 	CanceledAt *time.Time `db:"canceled_at" json:"canceled_at"`
 	DeletedAt  *time.Time `db:"deleted_at"  json:"deleted_at"`
+	// The launch invite as the admin wrote it ({name} unexpanded, no link), so
+	// late additions can start from the same draft. Nil until launched with a
+	// custom message.
+	InviteMessage     *string `db:"invite_message"      json:"invite_message"`
+	InviteIncludeLink bool    `db:"invite_include_link" json:"invite_include_link"`
 }
 
 type Contact struct {
@@ -92,10 +97,25 @@ type AddInviteeRequest struct {
 	FirstName   string `json:"first_name"`
 	LastName    string `json:"last_name"`
 	PhoneNumber string `json:"phone_number"`
+	// Message is the invite text queued when the event is already launched.
+	// Nil falls back to the built-in default invite. See renderMessage for
+	// placeholders.
+	Message     *string `json:"message"`
+	IncludeLink *bool   `json:"include_link"`
+}
+
+// LaunchEventRequest is optional: an empty body launches with the built-in
+// default invite and the RSVP link included.
+type LaunchEventRequest struct {
+	Content     *string `json:"content"`
+	IncludeLink *bool   `json:"include_link"`
 }
 
 type SendMessageRequest struct {
 	Content string `json:"content" binding:"required"`
+	// IncludeLink defaults to true when omitted, matching the old behaviour of
+	// always appending the recipient's RSVP link.
+	IncludeLink *bool `json:"include_link"`
 }
 
 // CancelEventRequest carries the cancellation notice the admin reviewed and
@@ -106,20 +126,20 @@ type CancelEventRequest struct {
 }
 
 type InvitePageData struct {
-	InviteID         string `db:"id"                json:"invite_id"`
-	RSVPStatus       string `db:"attending"         json:"rsvp_status"`
-	AdditionalGuests int    `db:"additional_guests" json:"additional_guests"`
-	EventID          int    `db:"event_id"          json:"event_id"`
-	ContactID        int    `db:"contact_id"        json:"contact_id"`
-	FirstName        string `db:"first_name"        json:"first_name"`
-	LastName         string `db:"last_name"         json:"last_name"`
-	EventName        string `db:"event_name"        json:"event_name"`
+	InviteID         string    `db:"id"                json:"invite_id"`
+	RSVPStatus       string    `db:"attending"         json:"rsvp_status"`
+	AdditionalGuests int       `db:"additional_guests" json:"additional_guests"`
+	EventID          int       `db:"event_id"          json:"event_id"`
+	ContactID        int       `db:"contact_id"        json:"contact_id"`
+	FirstName        string    `db:"first_name"        json:"first_name"`
+	LastName         string    `db:"last_name"         json:"last_name"`
+	EventName        string    `db:"event_name"        json:"event_name"`
 	EventDate        time.Time `db:"event_date"      json:"event_date"`
 	EventEndTime     time.Time `db:"event_end_time"  json:"event_end_time"`
-	EventDescription string `db:"event_description" json:"event_description"`
-	EventLocation    string `db:"event_location"    json:"event_location"`
-	PlusOnesAllowed  bool   `db:"plus_ones_allowed" json:"plus_ones_allowed"`
-	EventStatus      string `db:"event_status"      json:"event_status"`
+	EventDescription string    `db:"event_description" json:"event_description"`
+	EventLocation    string    `db:"event_location"    json:"event_location"`
+	PlusOnesAllowed  bool      `db:"plus_ones_allowed" json:"plus_ones_allowed"`
+	EventStatus      string    `db:"event_status"      json:"event_status"`
 }
 
 type CoInvitee struct {

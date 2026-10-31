@@ -199,6 +199,7 @@ body {
 .status-select:disabled { opacity: .6; }
 
 .checkbox-label {
+  display: flex;
   flex-direction: row !important;
   align-items: center;
   gap: 8px !important;

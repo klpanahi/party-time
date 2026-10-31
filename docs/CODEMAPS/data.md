@@ -24,6 +24,8 @@ events
   status            varchar DEFAULT 'draft'   -- 'draft'|'launched'|'canceled'|'deleted'
   canceled_at       TIMESTAMPTZ NULL
   deleted_at        TIMESTAMPTZ NULL          -- 'deleted' is a soft delete; the row stays
+  invite_message    text NULL                 -- launch invite as written ({name} unexpanded, no link); NULL = default
+  invite_include_link bool NOT NULL DEFAULT true -- whether launch invites carried the RSVP link
 
 invites
   id                uuid DEFAULT gen_random_uuid() PK
@@ -64,6 +66,7 @@ events   ──< messages ──< texts
 
 ## Notes
 - Invite IDs are UUIDs — safe to embed in SMS links
-- `texts.content` is populated for launch/add-invitee flows; NULL means resolve via `messages.content`
+- `texts.content` is the rendered per-recipient text ({name} expanded, RSVP link appended if chosen); NULL means resolve via `messages.content`
+- `00005_event_invite_message.sql` adds `events.invite_message` / `invite_include_link`
 - `contacts.phone_number` has unique constraint — upsert used in `adminAddInvitee`
 - `texts` is the SMS outbox: rows enter `pending`, the worker (`worker.go`) drives `sending → sent|failed`

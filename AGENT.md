@@ -101,7 +101,7 @@ Go 1.25 / Gin v1.12. Single binary on `:8080`. Admin routes are gated by `ADMIN_
 | File | Purpose |
 |------|---------|
 | `main.go` | Router setup, CORS, public route handlers, `Env` struct |
-| `admin_handlers.go` | All `/admin/*` handlers + `buildInviteMessage()` |
+| `admin_handlers.go` | All `/admin/*` handlers + `renderMessage()` / `defaultInviteTemplate()` |
 | `structs.go` | All request, response, and DB types |
 | `helpers.go` | `getenv()`, `loaddbconfig()`, `parseCentralTime()` |
 | `setup_test.go` | Test DB setup — runs the embedded goose migrations via `runMigrations` (`migrate.go`) |
@@ -157,9 +157,11 @@ All three `TWILIO_*` vars must be set for SMS to send; if any is missing the tex
 | POST | `/admin/events/:id/launch` | Transition event `draft → launched`, queue invite texts |
 | POST | `/admin/texts/:id/resend` | Requeue a `failed` text (`failed → pending`); 409 if not failed |
 
-`POST /admin/events/:id/invites` accepts either `{ "contact_id": N }` or `{ "first_name", "last_name", "phone_number" }` (upserts contact by phone). If the event is already launched, an invite text is queued immediately for the new invitee.
+`POST /admin/events/:id/invites` accepts either `{ "contact_id": N }` or `{ "first_name", "last_name", "phone_number" }` (upserts contact by phone). If the event is already launched, an invite text is queued immediately for the new invitee, using the optional `message` / `include_link` fields (default invite and link on when omitted).
 
-`POST /admin/events/:id/launch` requires at least one invitee; inserts a pending text per invitee and sets `events.status = 'launched'`. Returns 409 if already launched.
+`POST /admin/events/:id/launch` requires at least one invitee; inserts a pending text per invitee and sets `events.status = 'launched'`. Returns 409 if already launched. Optional body `{ "content", "include_link" }` replaces the default invite (blank `content` is a 400); the template is stored on `events.invite_message` / `invite_include_link` so the admin UI can offer it again for late additions.
+
+**Customizable messages.** Every text an invitee gets is written or reviewed by the admin: launch invite, late-add invite, broadcast (`/messages`) and cancel notice. In all of them `{name}` is replaced with the recipient's first name (`renderMessage`, or SQL `replace()` for the set-based inserts). Launch, late-add and broadcast take `include_link` (default `true`) to append `Manage your RSVP here: <link>`; the cancel notice never carries a link.
 
 ### Text Delivery (SMS via Twilio)
 
@@ -217,10 +219,11 @@ React 19 + Vite. Not publicly accessible — requires the backend admin pod.
 - **Tabs:** Invitees | Messages
 - **Invitees tab:** table with Name, Phone, RSVP badge, +Guests, Opened timestamp, and an Invite Link copy button.
   - **Add Invitee modal** — two tabs: *From Contacts* (search, click to invite) and *New Contact* (upserts by phone number).
-  - **Send a Message** section: queues a broadcast to all non-declined invitees; backend appends each recipient's personal RSVP link automatically.
+  - **Send a Message** section: queues a broadcast to all non-declined invitees; an "Include invite link" box (ticked by default) appends each recipient's personal RSVP link.
+  - **Add Invitee on a launched event**: after picking/creating the contact, a compose step shows the invite (prefilled with the launch message) and the link box before anything is sent.
   - **"Notify invitees of changes"** button (launched events only): pre-fills the message textarea with a stock update notice and scrolls/focuses to it.
 - **Messages tab:** chronological log of all queued/sent texts with expandable content rows.
-- **Launch Event** button (draft events): confirmation modal → `POST /admin/events/:id/launch`.
+- **Launch Event** button (draft events): modal with an editable invite draft (`inviteDraft()`, `Hey {name}!` + event details) and the link box → `POST /admin/events/:id/launch`.
 - Invitees are ordered: Accepted → Tentative → No Response → Declined.
 
 **Contacts (`/contacts`)**
