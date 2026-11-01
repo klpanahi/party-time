@@ -8,7 +8,7 @@ github.com/gin-gonic/gin v1.12.0       HTTP router + middleware
 github.com/gin-contrib/cors v1.7.7     CORS middleware
 github.com/jmoiron/sqlx v1.4.0        SQL query helper (db.Select, db.Get)
 github.com/lib/pq v1.12.1             PostgreSQL driver
-github.com/nyaruka/phonenumbers v1.8.1  Phone parsing/validation → E.164 (port of Google libphonenumber)
+github.com/nyaruka/phonenumbers v1.8.1  Phone parsing/validation/formatting (port of Google libphonenumber)
 github.com/pressly/goose/v3 v3.27.3   Schema migration runner (embedded in binary via //go:embed)
 github.com/twilio/twilio-go v1.30.9   Twilio SMS API client
 ```

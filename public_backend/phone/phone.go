@@ -5,6 +5,7 @@ package phone
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -19,23 +20,51 @@ const DefaultRegion = "US"
 var ErrInvalid = errors.New("phone_number could not be parsed as a phone number; please re-enter it")
 
 // Normalize parses a phone number typed in any format ("(512) 350-0064",
-// "512.350.0064", "+1 512 350 0064", ...) and returns its E.164 form
-// ("+15123500064"), the one format stored for every contact. Numbers without a
-// country code are read as US numbers.
+// "512.350.0064", "+15123500064", ...) and returns the one form stored and
+// shown for every contact: "+1 (512)350-0064" for a +1 (North American)
+// number, the library's international format ("+44 20 7946 0958") for any
+// other country. Numbers without a country code are read as US numbers.
 //
-// Invisible formatting characters are dropped first: a number copied out of
-// macOS Contacts arrives wrapped in U+202D/U+202C direction marks, which the
-// parser would otherwise reject.
+// The stored form is for people. Anything that sends a text gets E164 instead.
 func Normalize(raw string) (string, error) {
+	num, err := parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if num.GetCountryCode() == 1 {
+		n := phonenumbers.GetNationalSignificantNumber(num)
+		if len(n) == 10 {
+			return fmt.Sprintf("+1 (%s)%s-%s", n[:3], n[3:6], n[6:]), nil
+		}
+	}
+	return phonenumbers.Format(num, phonenumbers.INTERNATIONAL), nil
+}
+
+// E164 converts a stored number to E.164 ("+15123500064") for the senders:
+// Twilio requires it, and the iMessage companion script gets the same. A value
+// that won't parse (only possible for rows saved before normalization) is
+// returned unchanged so the sender reports it, as it always has.
+func E164(stored string) string {
+	num, err := parse(stored)
+	if err != nil {
+		return stored
+	}
+	return phonenumbers.Format(num, phonenumbers.E164)
+}
+
+// parse is the shared validity rule. Invisible formatting characters are
+// dropped first: a number copied out of macOS Contacts arrives wrapped in
+// U+202D/U+202C direction marks, which the parser would otherwise reject.
+func parse(raw string) (*phonenumbers.PhoneNumber, error) {
 	raw = strings.TrimSpace(stripFormatChars(raw))
 	if raw == "" {
-		return "", ErrInvalid
+		return nil, ErrInvalid
 	}
 	num, err := phonenumbers.Parse(raw, DefaultRegion)
 	if err != nil || !phonenumbers.IsValidNumber(num) {
-		return "", ErrInvalid
+		return nil, ErrInvalid
 	}
-	return phonenumbers.Format(num, phonenumbers.E164), nil
+	return num, nil
 }
 
 // stripFormatChars removes Unicode format characters (category Cf): direction

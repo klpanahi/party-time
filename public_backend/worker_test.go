@@ -108,6 +108,21 @@ func TestTextWorker(t *testing.T) {
 		}
 	})
 
+	t.Run("sends to the E.164 form of a stored display-format number", func(t *testing.T) {
+		cleanDB(t)
+		contactID := seedContact(t, "Ana", "Diaz", "+1 (512)350-0064")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		seedText(t, contactID, eventID, "Hi Ana")
+
+		fake := &fakeSender{sid: "SMe164"}
+		env := &Env{db: testDB, sender: fake}
+		env.processPendingTexts(context.Background(), 0)
+
+		if fake.callCount() != 1 || fake.calls[0].To != "+15123500064" {
+			t.Errorf("sends = %+v, want one to +15123500064", fake.calls)
+		}
+	})
+
 	t.Run("marks text failed when sender errors", func(t *testing.T) {
 		cleanDB(t)
 		contactID := seedContact(t, "Bob", "Jones", "+15555550101")
@@ -218,6 +233,24 @@ func TestResendText(t *testing.T) {
 // external senders (the iMessage companion script) to pull work from the same
 // queue the Twilio worker drains.
 func TestClaimPendingTexts(t *testing.T) {
+	t.Run("hands the sender E.164 numbers, peek and claim alike", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		contactID := seedContact(t, "Ana", "Diaz", "+1 (512)350-0064")
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		seedText(t, contactID, eventID, "hi")
+
+		for _, path := range []string{"/admin/texts/pending?peek=true", "/admin/texts/pending"} {
+			w := do(t, r, "GET", path, nil)
+			assertStatus(t, w, 200)
+			var got []PendingText
+			mustDecode(t, w, &got)
+			if len(got) != 1 || got[0].PhoneNumber != "+15123500064" {
+				t.Errorf("%s = %+v, want one text to +15123500064", path, got)
+			}
+		}
+	})
+
 	t.Run("claims up to limit and flips status to sending", func(t *testing.T) {
 		cleanDB(t)
 		r := newRouter()

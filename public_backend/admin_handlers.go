@@ -108,8 +108,8 @@ var validMessageTypes = map[string]bool{
 }
 
 // bindContact parses and validates a contact body, normalizing the phone number
-// to E.164 and an omitted message_type to the default. Writes the response and
-// reports false on a bad request, so callers just return.
+// (phone.Normalize) and an omitted message_type to the default. Writes the
+// response and reports false on a bad request, so callers just return.
 func bindContact(c *gin.Context, req *contactRequest) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -867,7 +867,7 @@ func (env *Env) adminClaimPendingTexts(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, texts)
+		c.JSON(http.StatusOK, e164Recipients(texts))
 		return
 	}
 
@@ -892,7 +892,16 @@ func (env *Env) adminClaimPendingTexts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, texts)
+	c.JSON(http.StatusOK, e164Recipients(texts))
+}
+
+// e164Recipients hands the external sender E.164 numbers. Contacts store
+// "+1 (512)350-0064" for people to read; the sender addresses the message.
+func e164Recipients(texts []PendingText) []PendingText {
+	for i := range texts {
+		texts[i].PhoneNumber = phone.E164(texts[i].PhoneNumber)
+	}
+	return texts
 }
 
 // adminReportTextStatus records the outcome of a text claimed via

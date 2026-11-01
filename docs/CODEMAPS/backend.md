@@ -57,7 +57,7 @@ public_backend/worker.go          background text worker: poll, claim, send, sta
 public_backend/sms.go             SMSSender interface + twilioSender + newTwilioSender
 public_backend/structs.go         all request/response/DB structs (139 lines)
 public_backend/helpers.go         getenv, loaddbconfig, parseCentralTime
-public_backend/phone/phone.go     phone.Normalize: any typed format -> E.164 (US default), via nyaruka/phonenumbers
+public_backend/phone/phone.go     phone.Normalize: any typed format -> "+1 (512)350-0064" (US default); phone.E164 for senders
 public_backend/phone.go           isUniqueViolation + errDuplicatePhone (contacts_unique -> 409)
 public_backend/cmd/normalize-phones  API-only backfill of pre-normalization numbers (wrapper: ops/normalize-phones.sh)
 public_backend/handlers_test.go   integration tests: TestHealthz, TestContacts, TestEvents (incl. update), TestAddInvitee,

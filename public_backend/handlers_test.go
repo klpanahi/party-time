@@ -67,7 +67,7 @@ func TestContacts(t *testing.T) {
 		if len(list) != 1 {
 			t.Fatalf("expected 1 contact, got %d", len(list))
 		}
-		if list[0].FirstName != "Alice" || list[0].PhoneNumber != "+15125551111" {
+		if list[0].FirstName != "Alice" || list[0].PhoneNumber != "+1 (512)555-1111" {
 			t.Errorf("unexpected contact: %+v", list[0])
 		}
 		// Neither field was supplied on create, so both should come back at
@@ -94,7 +94,7 @@ func TestContacts(t *testing.T) {
 		mustDecode(t, w, &list)
 		var found *Contact
 		for i := range list {
-			if list[i].PhoneNumber == "+15125553333" {
+			if list[i].PhoneNumber == "+1 (512)555-3333" {
 				found = &list[i]
 			}
 		}
@@ -144,8 +144,8 @@ func TestContacts(t *testing.T) {
 		if found.FirstName != "Robert" {
 			t.Errorf("first_name = %q, want Robert", found.FirstName)
 		}
-		if found.PhoneNumber != "+15125552222" {
-			t.Errorf("phone_number = %q, want +15125552222", found.PhoneNumber)
+		if found.PhoneNumber != "+1 (512)555-2222" {
+			t.Errorf("phone_number = %q, want +1 (512)555-2222", found.PhoneNumber)
 		}
 		if found.MessageType != "sms" || found.Notes != "Prefers a heads up the day before" {
 			t.Errorf("notes/message_type not persisted: %+v", *found)
@@ -194,25 +194,25 @@ func TestContacts(t *testing.T) {
 		})
 		assertStatus(t, w, 400)
 
-		var name, phone string
+		var name, stored string
 		if err := testDB.QueryRow("SELECT first_name, phone_number FROM contacts WHERE id = $1", contactID).
-			Scan(&name, &phone); err != nil {
+			Scan(&name, &stored); err != nil {
 			t.Fatal(err)
 		}
-		if name != "Keep" || phone != "+15125556666" {
-			t.Errorf("contact changed to %q / %q, want it untouched", name, phone)
+		if name != "Keep" || stored != "+15125556666" {
+			t.Errorf("contact changed to %q / %q, want it untouched", name, stored)
 		}
 	})
 
 	t.Run("number that collides with another contact once normalized returns 409", func(t *testing.T) {
-		seedContact(t, "First", "Owner", "+15125557777")
+		seedContact(t, "First", "Owner", "+1 (512)555-7777")
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Second",
 			"phone_number": "(512) 555-7777",
 		})
 		assertStatus(t, w, 409)
 
-		other := seedContact(t, "Other", "Person", "+15125557778")
+		other := seedContact(t, "Other", "Person", "+1 (512)555-7778")
 		w = do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", other), map[string]any{
 			"first_name":   "Other",
 			"phone_number": "512 555 7777",
@@ -464,7 +464,7 @@ func TestAddInvitee(t *testing.T) {
 		mustDecode(t, w, &contacts)
 		var found bool
 		for _, c := range contacts {
-			if c.PhoneNumber == "+15125550555" && c.FirstName == "Eve" {
+			if c.PhoneNumber == "+1 (512)555-0555" && c.FirstName == "Eve" {
 				found = true
 			}
 		}

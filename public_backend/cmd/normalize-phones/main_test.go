@@ -51,7 +51,7 @@ func (f *fakeAdmin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func seed() []contact {
 	return []contact{
 		{ID: 1, FirstName: "Ann", PhoneNumber: "(512)350-0064", MessageType: "imessage", Notes: "keep me"},
-		{ID: 2, FirstName: "Ben", PhoneNumber: "+15123649131", MessageType: "sms"},
+		{ID: 2, FirstName: "Ben", PhoneNumber: "+1 (512)364-9131", MessageType: "sms"},
 		{ID: 3, FirstName: "Cal", PhoneNumber: "call me", MessageType: "imessage"},
 		{ID: 4, FirstName: "Dee", PhoneNumber: "+1 (512) 364-9131", MessageType: "imessage"}, // same as Ben
 		{ID: 5, FirstName: "Eli", PhoneNumber: "7373145188", MessageType: "sms"},
@@ -72,7 +72,7 @@ func TestBuildPlan(t *testing.T) {
 	for _, ch := range p.changes {
 		switch ch.ID {
 		case 1:
-			if ch.normalized != "+15123500064" || ch.conflictWith != "" {
+			if ch.normalized != "+1 (512)350-0064" || ch.conflictWith != "" {
 				t.Errorf("#1 = %+v", ch)
 			}
 		case 4:
@@ -80,7 +80,7 @@ func TestBuildPlan(t *testing.T) {
 				t.Errorf("#4 conflictWith = %q, want Ben", ch.conflictWith)
 			}
 		case 5:
-			if ch.normalized != "+17373145188" {
+			if ch.normalized != "+1 (737)314-5188" {
 				t.Errorf("#5 normalized = %q", ch.normalized)
 			}
 		}
@@ -100,7 +100,7 @@ func TestDryRunOnlyReads(t *testing.T) {
 	if len(f.puts) != 0 {
 		t.Errorf("dry run sent %d PUTs, want none", len(f.puts))
 	}
-	for _, want := range []string{"DRY RUN", `"(512)350-0064"`, "+15123500064", "SKIP", "Won't parse", `"call me"`} {
+	for _, want := range []string{"DRY RUN", `"(512)350-0064"`, "+1 (512)350-0064", "SKIP", "Won't parse", `"call me"`} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
@@ -115,7 +115,7 @@ func TestApplyResavesEachChangeUnmodified(t *testing.T) {
 	var out strings.Builder
 	run(&out, client{base: srv.URL, http: srv.Client()}, true)
 
-	// #1 and #5 are PUT; #2 is already E.164, #3 won't parse, #4 conflicts.
+	// #1 and #5 are PUT; #2 is already normalized, #3 won't parse, #4 conflicts.
 	if len(f.puts) != 2 {
 		t.Fatalf("PUTs = %+v, want 2", f.puts)
 	}
@@ -125,10 +125,13 @@ func TestApplyResavesEachChangeUnmodified(t *testing.T) {
 		f.puts[0]["message_type"] != "imessage" || f.puts[0]["first_name"] != "Ann" {
 		t.Errorf("first PUT = %+v", f.puts[0])
 	}
-	if f.contacts[0].PhoneNumber != "+15123500064" || f.contacts[4].PhoneNumber != "+17373145188" {
+	if _, sent := f.puts[0]["tags"]; sent {
+		t.Errorf("PUT carries tags, which would replace the contact's: %+v", f.puts[0])
+	}
+	if f.contacts[0].PhoneNumber != "+1 (512)350-0064" || f.contacts[4].PhoneNumber != "+1 (737)314-5188" {
 		t.Errorf("contacts after apply = %+v", f.contacts)
 	}
-	if !strings.Contains(out.String(), "After: 3 already E.164, 1 still to normalize, 1 won't parse") {
+	if !strings.Contains(out.String(), "After: 3 already normalized, 1 still to normalize, 1 won't parse") {
 		t.Errorf("summary missing:\n%s", out.String())
 	}
 }

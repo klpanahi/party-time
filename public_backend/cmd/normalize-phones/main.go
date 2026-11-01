@@ -1,7 +1,7 @@
 // Command normalize-phones backfills contact phone numbers saved before the
-// backend normalized them to E.164. It works through the admin API only — GET
-// every contact, then PUT each one back unchanged so the backend's own
-// normalization rewrites the number. No SQL, no migration.
+// backend normalized them (to "+1 (512)350-0064"). It works through the admin
+// API only — GET every contact, then PUT each one back unchanged so the
+// backend's own normalization rewrites the number. No SQL, no migration.
 //
 // Dry run is the default: it only GETs, and lists what would change and which
 // numbers won't parse. Pass -apply to PUT. Run it via ops/normalize-phones.sh.
@@ -32,7 +32,7 @@ type contact struct {
 
 func (c contact) name() string { return strings.TrimSpace(c.FirstName + " " + c.LastName) }
 
-// change is one contact whose stored number isn't in E.164 yet.
+// change is one contact whose stored number isn't normalized yet.
 type change struct {
 	contact
 	normalized string
@@ -123,7 +123,8 @@ func (cl client) contacts() ([]contact, error) {
 }
 
 // resave PUTs the contact back exactly as it was read, phone number included —
-// the backend does the normalizing.
+// the backend does the normalizing. tags is left out on purpose: the backend
+// keeps a contact's interest tags when the field is omitted.
 func (cl client) resave(c contact) error {
 	body := map[string]string{
 		"first_name":   c.FirstName,
@@ -149,7 +150,7 @@ func run(out io.Writer, cl client, apply bool) int {
 		mode = "APPLY (PUT each contact below)"
 	}
 	fmt.Fprintf(out, "%s against %s\n", mode, cl.base)
-	fmt.Fprintf(out, "%d contacts: %d already E.164, %d to normalize, %d won't parse\n\n",
+	fmt.Fprintf(out, "%d contacts: %d already normalized, %d to normalize, %d won't parse\n\n",
 		len(contacts), p.unchanged, len(p.changes), len(p.invalid))
 
 	failed := 0
@@ -188,7 +189,7 @@ func run(out io.Writer, cl client, apply bool) int {
 			return 1
 		}
 		left := buildPlan(after)
-		fmt.Fprintf(out, "\nAfter: %d already E.164, %d still to normalize, %d won't parse\n",
+		fmt.Fprintf(out, "\nAfter: %d already normalized, %d still to normalize, %d won't parse\n",
 			left.unchanged, len(left.changes), len(left.invalid))
 	}
 

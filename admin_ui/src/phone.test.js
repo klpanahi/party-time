@@ -4,20 +4,21 @@ import { normalizePhone, formatPhone, phoneMatches } from './phone'
 describe('normalizePhone', () => {
   it.each([
     // The formats already in the contacts table.
-    ['(512)350-0064', '+15123500064'],
-    ['+1 (512) 364-9131', '+15123649131'],
-    ['7373145188', '+17373145188'],
-    ['(205) 335-5501', '+12053355501'],
+    ['(512)350-0064', '+1 (512)350-0064'],
+    ['+1 (512) 364-9131', '+1 (512)364-9131'],
+    ['7373145188', '+1 (737)314-5188'],
+    ['(205) 335-5501', '+1 (205)335-5501'],
     // Other ways people type a US number.
-    ['512.350.0064', '+15123500064'],
-    ['1-512-350-0064', '+15123500064'],
-    ['  512 350 0064  ', '+15123500064'],
-    ['+15123500064', '+15123500064'],
+    ['512.350.0064', '+1 (512)350-0064'],
+    ['1-512-350-0064', '+1 (512)350-0064'],
+    ['  512 350 0064  ', '+1 (512)350-0064'],
+    ['+15123500064', '+1 (512)350-0064'],
+    ['+1 (512)350-0064', '+1 (512)350-0064'],
     // Pasted from macOS Contacts: wrapped in invisible direction marks.
-    ['\u202d+1 (512) 900-0626\u202c', '+15129000626'],
-    ['512\u200b350\u200b0064', '+15123500064'],
+    ['\u202d+1 (512) 900-0626\u202c', '+1 (512)900-0626'],
+    ['512\u200b350\u200b0064', '+1 (512)350-0064'],
     // An explicit country code is kept.
-    ['+44 20 7946 0958', '+442079460958'],
+    ['+44 20 7946 0958', '+44 20 7946 0958'],
   ])('normalizes %j to %s', (input, want) => {
     expect(normalizePhone(input)).toBe(want)
   })
@@ -31,13 +32,15 @@ describe('normalizePhone', () => {
 })
 
 describe('formatPhone', () => {
-  it('shows a stored number in international format', () => {
-    expect(formatPhone('+15123500064')).toBe('+1 512 350 0064')
-    expect(formatPhone('+442079460958')).toBe('+44 20 7946 0958')
+  it('shows a stored number as stored', () => {
+    expect(formatPhone('+1 (512)350-0064')).toBe('+1 (512)350-0064')
+    expect(formatPhone('+44 20 7946 0958')).toBe('+44 20 7946 0958')
   })
 
   it('formats a number saved before normalization the same way', () => {
-    expect(formatPhone('(512)350-0064')).toBe('+1 512 350 0064')
+    expect(formatPhone('(512)350-0064')).toBe('+1 (512)350-0064')
+    expect(formatPhone('+15123500064')).toBe('+1 (512)350-0064')
+    expect(formatPhone('+442079460958')).toBe('+44 20 7946 0958')
   })
 
   it('shows unparseable input as stored', () => {
@@ -48,7 +51,7 @@ describe('formatPhone', () => {
 
 describe('phoneMatches', () => {
   it('matches on digits regardless of punctuation', () => {
-    expect(phoneMatches('+15123500064', '(512) 350')).toBe(true)
+    expect(phoneMatches('+1 (512)350-0064', '512 350')).toBe(true)
     expect(phoneMatches('+15123500064', '350-0064')).toBe(true)
   })
 

@@ -40,7 +40,7 @@ getTexts(eid)        GET  /admin/events/:id/texts
 `admin_ui/src/dateUtils.js` — date formatting helpers
 `admin_ui/src/tagUtils.js` — tag normalization, distinct tags, any-of tag matching
 `admin_ui/src/tags.jsx` — TagChips, TagFilter (toggle chips), TagInput (editor with suggestions)
-`admin_ui/src/phone.js` — `normalizePhone` (typed → E.164, null if unparseable; libphonenumber-js, same rule as the backend), `formatPhone` (every number shown as `+1 512 350 0064`), `phoneMatches` (digit search)
+`admin_ui/src/phone.js` — `normalizePhone` (typed → `+1 (512)350-0064`, null if unparseable; libphonenumber-js, same rule and string as the backend), `formatPhone` (display; also canonicalizes legacy values), `phoneMatches` (digit search)
 `admin_ui/src/PhoneField.jsx` — phone input with the inline "Couldn't read that as a phone number" error, used by the contact modal and Add Invitee → New Contact
 
 ### Testing

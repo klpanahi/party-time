@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Backfill contact phone numbers to E.164 through the admin API (card #27).
+# Backfill contact phone numbers to "+1 (512)350-0064" through the admin API
+# (card #27).
 #
-# GETs every contact and PUTs each one whose number isn't E.164 yet back
+# GETs every contact and PUTs each one whose number isn't normalized yet back
 # unchanged, so the backend's own normalization rewrites it. No SQL.
 #
 #   ops/normalize-phones.sh           # dry run: GET only, lists what would change

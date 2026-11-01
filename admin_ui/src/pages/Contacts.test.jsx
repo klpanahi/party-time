@@ -107,7 +107,7 @@ describe('Contacts', () => {
 
     expect(screen.getByRole('heading', { name: /edit contact/i })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Alice')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('+1 512 555 1111')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('+1 (512)555-1111')).toBeInTheDocument()
     expect(screen.getByLabelText(/message type/i)).toHaveValue('imessage')
     expect(screen.getByLabelText(/notes/i)).toHaveValue('')
   })
@@ -180,7 +180,7 @@ describe('Contacts', () => {
     renderContacts()
     await screen.findByText('Alice')
     const aliceRow = screen.getByText('Alice').closest('tr')
-    expect(within(aliceRow).getByText('+1 512 555 1111')).toBeInTheDocument()
+    expect(within(aliceRow).getByText('+1 (512)555-1111')).toBeInTheDocument()
   })
 
   it('normalizes a number typed in any format before sending it', async () => {
@@ -200,7 +200,7 @@ describe('Contacts', () => {
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
     await screen.findByText('Alice')
-    expect(posted).toMatchObject({ first_name: 'Erin', phone_number: '+15123500064' })
+    expect(posted).toMatchObject({ first_name: 'Erin', phone_number: '+1 (512)350-0064' })
   })
 
   it('shows an inline error and saves nothing when the number cannot be parsed', async () => {
@@ -253,7 +253,7 @@ describe('Contacts', () => {
     expect(put).toBe(false)
   })
 
-  it('sends the edited contact\'s existing number back in E.164', async () => {
+  it('sends the edited contact\'s existing number back in canonical form', async () => {
     let put
     server.use(
       http.put(`${BASE}/contacts/:id`, async ({ request }) => {
@@ -268,7 +268,7 @@ describe('Contacts', () => {
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
     await screen.findByText('Alice')
-    expect(put).toMatchObject({ phone_number: '+15125551111' })
+    expect(put).toMatchObject({ phone_number: '+1 (512)555-1111' })
   })
 })
 
@@ -276,7 +276,7 @@ describe('Contacts interest tags', () => {
   it('shows each contact\'s tags and a dash for none', async () => {
     server.use(http.get(`${BASE}/contacts`, () => HttpResponse.json([
       ...defaultContacts,
-      { id: 'contact-ghi', first_name: 'Cara', last_name: 'Nope', phone_number: '+15550003333', message_type: 'imessage', notes: '', tags: [] },
+      { id: 'contact-ghi', first_name: 'Cara', last_name: 'Nope', phone_number: '+15125553333', message_type: 'imessage', notes: '', tags: [] },
     ])))
     renderContacts()
     await screen.findByText('Alice')
@@ -353,7 +353,7 @@ describe('Contacts interest tags', () => {
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
 
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     const tagInput = screen.getByLabelText(/add interest/i)
     await userEvent.type(tagInput, '  Rock  Climbing {Enter}')
     await userEvent.type(tagInput, 'Wine,')
@@ -377,7 +377,7 @@ describe('Contacts interest tags', () => {
     await screen.findByText('Alice')
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     const tagInput = screen.getByLabelText(/add interest/i)
     await userEvent.click(tagInput)
     await userEvent.paste('Hiking, wine,, Jazz')

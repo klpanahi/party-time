@@ -58,7 +58,7 @@ describe('EventDetails', () => {
   it('invitees tab is shown by default and renders the invitee table', async () => {
     renderDetails()
     await screen.findByText('Alice Smith')
-    expect(screen.getByText('+1 512 555 1111')).toBeInTheDocument()
+    expect(screen.getByText('+1 (512)555-1111')).toBeInTheDocument()
   })
 
   it('triggers auto-save 800ms after a field change', async () => {
@@ -784,10 +784,10 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.type(screen.getByPlaceholderText(/search by name or phone/i), '(512) 555-2222')
-    expect(screen.getByRole('button', { name: /bob jones/i })).toHaveTextContent('+1 512 555 2222')
+    expect(screen.getByRole('checkbox', { name: /bob jones/i }).closest('label')).toHaveTextContent('+1 (512)555-2222')
   })
 
   it('New Contact normalizes the typed number before sending it', async () => {
@@ -807,14 +807,14 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
     await userEvent.type(screen.getByLabelText(/phone number/i), '512.350.0064')
     await userEvent.click(screen.getByRole('button', { name: /add & invite/i }))
 
-    expect(posted).toMatchObject({ first_name: 'Carol', phone_number: '+15123500064' })
+    expect(posted).toMatchObject({ first_name: 'Carol', phone_number: '+1 (512)350-0064' })
   })
 
   it('New Contact shows an inline error and sends nothing for an unparseable number', async () => {
@@ -834,7 +834,7 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
@@ -1067,7 +1067,7 @@ describe('AddInviteeModal on a launched event', () => {
     await userEvent.click(modal.getByRole('button', { name: /send invite/i }))
 
     expect(captured.body).toEqual({
-      first_name: 'Carol', last_name: '', phone_number: '+15125559999',
+      first_name: 'Carol', last_name: '', phone_number: '+1 (512)555-9999',
       message: 'Hi {name}, join us!', include_link: true,
     })
   })
@@ -1100,10 +1100,10 @@ describe('AddInviteeModal on a launched event', () => {
 
 describe('AddInviteeModal multi-select and tag filter', () => {
   const contacts = [
-    { id: 'contact-abc', first_name: 'Alice', last_name: 'Smith', phone_number: '+15550001111', tags: ['hiking'] },
-    { id: 'c-bob', first_name: 'Bob', last_name: 'Jones', phone_number: '+15550002222', tags: ['board games', 'hiking'] },
-    { id: 'c-cara', first_name: 'Cara', last_name: 'Diaz', phone_number: '+15550003333', tags: ['wine'] },
-    { id: 'c-dan', first_name: 'Dan', last_name: 'Wu', phone_number: '+15550004444', tags: [] },
+    { id: 'contact-abc', first_name: 'Alice', last_name: 'Smith', phone_number: '+15125551111', tags: ['hiking'] },
+    { id: 'c-bob', first_name: 'Bob', last_name: 'Jones', phone_number: '+15125552222', tags: ['board games', 'hiking'] },
+    { id: 'c-cara', first_name: 'Cara', last_name: 'Diaz', phone_number: '+15125553333', tags: ['wine'] },
+    { id: 'c-dan', first_name: 'Dan', last_name: 'Wu', phone_number: '+15125554444', tags: [] },
   ]
 
   function setup(eventOverride) {
