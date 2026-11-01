@@ -18,15 +18,16 @@ GET  /event/:id            → getEventByID          → SELECT * FROM events
 
 ### Admin (ADMIN_ENABLED=true)
 ```
-GET  /admin/contacts           → adminGetContacts      → SELECT * FROM contacts
-POST /admin/contacts           → adminCreateContact    → INSERT contacts
-PUT  /admin/contacts/:id       → adminUpdateContact    → UPDATE contacts
+GET  /admin/contacts           → adminGetContacts      → contacts LEFT JOIN contact_tags, tags[] aggregated per contact
+POST /admin/contacts           → adminCreateContact    → INSERT contacts + contact_tags (one tx)
+PUT  /admin/contacts/:id       → adminUpdateContact    → UPDATE contacts; replace contact_tags only when tags is sent
 
 GET  /admin/events             → adminGetEvents        → events + RSVP count aggregation
 POST /admin/events             → adminCreateEvent      → INSERT events
 GET  /admin/events/:id         → adminGetEvent         → event + invitees joined
 PUT  /admin/events/:id         → adminUpdateEvent      → UPDATE events
 POST /admin/events/:id/invites → adminAddInvitee       → upsert contact + INSERT invite; if launched, queue invite text (optional message/include_link)
+POST /admin/events/:id/invites/bulk → adminBulkAddInvitees → INSERT invites for contact_ids[] (skips already invited; unknown id = 400); if launched, queue one invite text each (one tx)
 POST /admin/events/:id/messages → adminSendMessage     → INSERT message + INSERT texts for non-declined invitees ({name}, optional link)
 GET  /admin/events/:id/texts   → adminGetTexts         → texts JOIN contacts LEFT JOIN messages (status, error, provider_sid, sent_at)
 POST /admin/events/:id/launch  → adminLaunchEvent      → INSERT invite texts for all (optional content/include_link), UPDATE status='launched' + invite_message

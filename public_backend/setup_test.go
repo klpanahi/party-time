@@ -73,7 +73,7 @@ func mustExec(db *sqlx.DB, sql string) {
 func cleanDB(t *testing.T) {
 	t.Helper()
 	if _, err := testDB.Exec(
-		`TRUNCATE texts, messages, invites, events, contacts RESTART IDENTITY CASCADE`,
+		`TRUNCATE texts, messages, invites, events, contact_tags, contacts RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("cleanDB: %v", err)
 	}
@@ -98,6 +98,7 @@ func newRouter() *gin.Engine {
 	admin.DELETE("/events/:id", testEnv.adminDeleteEvent)
 	admin.POST("/events/:id/cancel", testEnv.adminCancelEvent)
 	admin.POST("/events/:id/invites", testEnv.adminAddInvitee)
+	admin.POST("/events/:id/invites/bulk", testEnv.adminBulkAddInvitees)
 	admin.POST("/events/:id/messages", testEnv.adminSendMessage)
 	admin.GET("/events/:id/texts", testEnv.adminGetTexts)
 	admin.POST("/events/:id/launch", testEnv.adminLaunchEvent)

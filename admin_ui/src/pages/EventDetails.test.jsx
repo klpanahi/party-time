@@ -640,6 +640,15 @@ describe('Delete Event', () => {
   })
 })
 
+// Ticks each named contact in the Add Invitee list, then clicks the add button
+// (which reads "Next: Review Invite" on a launched event).
+async function pickContacts(scope, ...names) {
+  for (const name of names) {
+    await userEvent.click(scope.getByRole('checkbox', { name }))
+  }
+  await userEvent.click(scope.getByRole('button', { name: /^add \d+ invitees?$|next: review invite/i }))
+}
+
 describe('AddInviteeModal', () => {
   it('opens the modal when "+ Add Invitee" is clicked', async () => {
     render(
@@ -666,10 +675,10 @@ describe('AddInviteeModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
 
     // Bob is not yet invited → should appear as a selectable contact
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
     // Alice is already an invitee — searching for her should yield no contact buttons
     await userEvent.type(screen.getByPlaceholderText(/search by name or phone/i), 'alice')
-    expect(screen.queryByRole('button', { name: /alice smith/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /alice smith/i })).not.toBeInTheDocument()
     expect(screen.getByText(/no contacts match/i)).toBeInTheDocument()
   })
 
@@ -683,10 +692,10 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.type(screen.getByPlaceholderText(/search by name or phone/i), 'bob')
-    expect(screen.getByRole('button', { name: /bob jones/i })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /bob jones/i })).toBeInTheDocument()
   })
 
   it('"Create a new one?" link switches to the New Contact tab', async () => {
@@ -699,7 +708,7 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.type(screen.getByPlaceholderText(/search by name or phone/i), 'zzz')
     await userEvent.click(screen.getByRole('button', { name: /create a new one/i }))
@@ -707,7 +716,7 @@ describe('AddInviteeModal', () => {
     expect(screen.getByLabelText(/first name/i)).toBeInTheDocument()
   })
 
-  it('selecting a contact adds the invitee and closes the modal', async () => {
+  it('ticking a contact and clicking Add adds the invitee and closes the modal', async () => {
     render(
       <MemoryRouter initialEntries={[`/event/${EVENT_ID}`]}>
         <Routes>
@@ -717,9 +726,9 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
-    await userEvent.click(screen.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(screen, /bob jones/i)
     // userEvent.click awaits the full async chain, so the modal is already closed
     expect(screen.queryByRole('heading', { name: /add invitee/i })).not.toBeInTheDocument()
   })
@@ -734,7 +743,7 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
@@ -744,9 +753,9 @@ describe('AddInviteeModal', () => {
     expect(screen.queryByRole('heading', { name: /add invitee/i })).not.toBeInTheDocument()
   })
 
-  it('shows error banner inside modal when addInvitee fails', async () => {
+  it('shows error banner inside modal when adding contacts fails', async () => {
     server.use(
-      http.post(`${BASE}/events/:id/invites`, () =>
+      http.post(`${BASE}/events/:id/invites/bulk`, () =>
         HttpResponse.json({ error: 'invite failed' }, { status: 500 })
       )
     )
@@ -759,9 +768,9 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
-    await userEvent.click(screen.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(screen, /bob jones/i)
     await screen.findByText('invite failed')
   })
 
@@ -780,7 +789,7 @@ describe('AddInviteeModal', () => {
     )
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
 
     await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
@@ -854,7 +863,8 @@ describe('Customizable invite on launch', () => {
     await screen.findByText('Launched')
 
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await userEvent.click(await screen.findByRole('button', { name: /bob jones/i }))
+    await screen.findByRole('checkbox', { name: /bob jones/i })
+    await pickContacts(screen, /bob jones/i)
     const addModal = within(screen.getByRole('heading', { name: /add invitee/i }).closest('.modal'))
     expect(addModal.getByLabelText(/invite message/i).value).toBe('Custom launch text')
     expect(addModal.getByLabelText(/include invite link/i)).not.toBeChecked()
@@ -912,6 +922,10 @@ describe('AddInviteeModal on a launched event', () => {
       http.post(`${BASE}/events/:id/invites`, async ({ request }) => {
         captured.body = await request.json()
         return HttpResponse.json({ ok: true })
+      }),
+      http.post(`${BASE}/events/:id/invites/bulk`, async ({ request }) => {
+        captured.body = await request.json()
+        return HttpResponse.json({ added: [], skipped: 0 }, { status: 201 })
       })
     )
     return captured
@@ -921,14 +935,14 @@ describe('AddInviteeModal on a launched event', () => {
     renderDetails()
     await screen.findByText('Alice Smith')
     await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
-    await screen.findByRole('button', { name: /bob jones/i })
+    await screen.findByRole('checkbox', { name: /bob jones/i })
     return within(screen.getByRole('heading', { name: /add invitee/i }).closest('.modal'))
   }
 
   it('picking a contact opens a compose step instead of sending straight away', async () => {
     const captured = captureInvite()
     const modal = await openModal()
-    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(modal, /bob jones/i)
 
     expect(captured.body).toBeUndefined()
     expect(modal.getByText('Bob Jones')).toBeInTheDocument()
@@ -939,7 +953,7 @@ describe('AddInviteeModal on a launched event', () => {
   it('"Send Invite" posts the contact with the edited message and link choice', async () => {
     const captured = captureInvite()
     const modal = await openModal()
-    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(modal, /bob jones/i)
 
     const textarea = modal.getByLabelText(/invite message/i)
     await userEvent.clear(textarea)
@@ -947,14 +961,14 @@ describe('AddInviteeModal on a launched event', () => {
     await userEvent.click(modal.getByLabelText(/include invite link/i))
     await userEvent.click(modal.getByRole('button', { name: /send invite/i }))
 
-    expect(captured.body).toEqual({ contact_id: 'contact-def', message: 'Late but welcome', include_link: false })
+    expect(captured.body).toEqual({ contact_ids: ['contact-def'], message: 'Late but welcome', include_link: false })
     expect(screen.queryByRole('heading', { name: /add invitee/i })).not.toBeInTheDocument()
   })
 
   it('"Back" returns to the contact list', async () => {
     captureInvite()
     const modal = await openModal()
-    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(modal, /bob jones/i)
     await userEvent.click(modal.getByRole('button', { name: /back/i }))
     expect(modal.getByPlaceholderText(/search by name or phone/i)).toBeInTheDocument()
   })
@@ -962,7 +976,7 @@ describe('AddInviteeModal on a launched event', () => {
   it('disables "Send Invite" when the message is blank', async () => {
     captureInvite()
     const modal = await openModal()
-    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(modal, /bob jones/i)
     await userEvent.clear(modal.getByLabelText(/invite message/i))
     expect(modal.getByRole('button', { name: /send invite/i })).toBeDisabled()
   })
@@ -989,7 +1003,7 @@ describe('AddInviteeModal on a launched event', () => {
       )
     )
     const modal = await openModal()
-    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
+    await pickContacts(modal, /bob jones/i)
     expect(modal.getByLabelText(/invite message/i).value).toMatch(/^Hey \{name\}!/)
     expect(modal.getByLabelText(/include invite link/i)).toBeChecked()
   })
@@ -997,13 +1011,124 @@ describe('AddInviteeModal on a launched event', () => {
   it('a draft event still adds the contact directly, with no message', async () => {
     let body
     server.use(
-      http.post(`${BASE}/events/:id/invites`, async ({ request }) => {
+      http.post(`${BASE}/events/:id/invites/bulk`, async ({ request }) => {
         body = await request.json()
-        return HttpResponse.json({ ok: true })
+        return HttpResponse.json({ added: [], skipped: 0 }, { status: 201 })
       })
     )
     const modal = await openModal()
-    await userEvent.click(modal.getByRole('button', { name: /bob jones/i }))
-    expect(body).toEqual({ contact_id: 'contact-def' })
+    await pickContacts(modal, /bob jones/i)
+    expect(body).toEqual({ contact_ids: ['contact-def'] })
+  })
+})
+
+describe('AddInviteeModal multi-select and tag filter', () => {
+  const contacts = [
+    { id: 'contact-abc', first_name: 'Alice', last_name: 'Smith', phone_number: '+15550001111', tags: ['hiking'] },
+    { id: 'c-bob', first_name: 'Bob', last_name: 'Jones', phone_number: '+15550002222', tags: ['board games', 'hiking'] },
+    { id: 'c-cara', first_name: 'Cara', last_name: 'Diaz', phone_number: '+15550003333', tags: ['wine'] },
+    { id: 'c-dan', first_name: 'Dan', last_name: 'Wu', phone_number: '+15550004444', tags: [] },
+  ]
+
+  function setup(eventOverride) {
+    const captured = {}
+    server.use(
+      http.get(`${BASE}/contacts`, () => HttpResponse.json(contacts)),
+      http.post(`${BASE}/events/:id/invites/bulk`, async ({ request }) => {
+        captured.body = await request.json()
+        return HttpResponse.json({ added: [], skipped: 0 }, { status: 201 })
+      }),
+    )
+    if (eventOverride) {
+      server.use(http.get(`${BASE}/events/:id`, () =>
+        HttpResponse.json({ ...defaultEvent, event: { ...defaultEvent.event, ...eventOverride } })))
+    }
+    return captured
+  }
+
+  async function openModal() {
+    renderDetails()
+    await screen.findByText('Alice Smith')
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await screen.findByRole('checkbox', { name: /bob jones/i })
+    return within(screen.getByRole('heading', { name: /add invitee/i }).closest('.modal'))
+  }
+
+  it('disables Add until someone is ticked, and shows each contact\'s tags', async () => {
+    setup()
+    const modal = await openModal()
+    expect(modal.getByRole('button', { name: /^add invitees$/i })).toBeDisabled()
+    const bobRow = modal.getByRole('checkbox', { name: /bob jones/i }).closest('label')
+    expect(within(bobRow).getByText('board games')).toBeInTheDocument()
+  })
+
+  it('adds several ticked contacts in one bulk request', async () => {
+    const captured = setup()
+    const modal = await openModal()
+    await userEvent.click(modal.getByRole('checkbox', { name: /bob jones/i }))
+    await userEvent.click(modal.getByRole('checkbox', { name: /cara diaz/i }))
+    expect(modal.getByText('2 selected')).toBeInTheDocument()
+    await userEvent.click(modal.getByRole('button', { name: /^add 2 invitees$/i }))
+
+    expect(captured.body).toEqual({ contact_ids: ['c-bob', 'c-cara'] })
+    expect(screen.queryByRole('heading', { name: /add invitee/i })).not.toBeInTheDocument()
+  })
+
+  it('unticking a contact removes it from the selection', async () => {
+    setup()
+    const modal = await openModal()
+    const bob = modal.getByRole('checkbox', { name: /bob jones/i })
+    await userEvent.click(bob)
+    await userEvent.click(bob)
+    expect(bob).not.toBeChecked()
+    expect(modal.getByRole('button', { name: /^add invitees$/i })).toBeDisabled()
+  })
+
+  it('filters by tag and "Select all shown" ticks only the filtered contacts', async () => {
+    const captured = setup()
+    const modal = await openModal()
+
+    await userEvent.click(modal.getByRole('button', { name: 'hiking' }))
+    // Alice has hiking but is already invited, so only Bob is shown.
+    expect(modal.queryByRole('checkbox', { name: /cara diaz/i })).not.toBeInTheDocument()
+    expect(modal.queryByRole('checkbox', { name: /alice smith/i })).not.toBeInTheDocument()
+
+    await userEvent.click(modal.getByLabelText(/select all 1 shown/i))
+    expect(modal.getByRole('checkbox', { name: /bob jones/i })).toBeChecked()
+
+    // Switching the filter keeps Bob ticked while adding Cara.
+    await userEvent.click(modal.getByRole('button', { name: 'hiking' }))
+    await userEvent.click(modal.getByRole('button', { name: 'wine' }))
+    await userEvent.click(modal.getByLabelText(/select all 1 shown/i))
+    await userEvent.click(modal.getByRole('button', { name: /clear/i }))
+    expect(modal.getByLabelText(/select all 3 shown/i)).not.toBeChecked()
+
+    await userEvent.click(modal.getByRole('button', { name: /^add 2 invitees$/i }))
+    expect(captured.body).toEqual({ contact_ids: ['c-bob', 'c-cara'] })
+  })
+
+  it('"Select all shown" toggles off again when everything shown is ticked', async () => {
+    setup()
+    const modal = await openModal()
+    const selectAll = modal.getByLabelText(/select all 3 shown/i)
+    await userEvent.click(selectAll)
+    expect(modal.getByText('3 selected')).toBeInTheDocument()
+    await userEvent.click(selectAll)
+    expect(modal.queryByText(/selected$/)).not.toBeInTheDocument()
+  })
+
+  it('on a launched event, reviews one invite for the whole group then sends it', async () => {
+    const captured = setup({ status: 'launched', invite_message: 'Hi {name}!', invite_include_link: true })
+    const modal = await openModal()
+    await userEvent.click(modal.getByLabelText(/select all 3 shown/i))
+    await userEvent.click(modal.getByRole('button', { name: /next: review invite/i }))
+
+    expect(captured.body).toBeUndefined()
+    expect(modal.getByText('3 people')).toBeInTheDocument()
+    await userEvent.click(modal.getByRole('button', { name: /send 3 invites/i }))
+
+    expect(captured.body).toEqual({
+      contact_ids: ['c-bob', 'c-cara', 'c-dan'], message: 'Hi {name}!', include_link: true,
+    })
   })
 })

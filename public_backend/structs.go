@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	"github.com/lib/pq"
+)
 
 type Invite struct {
 	ID                string `db:"id"`
@@ -41,6 +45,10 @@ type Contact struct {
 	// MessageType is the channel this contact is texted on, "imessage" or "sms".
 	// The external sender reads it instead of discovering the channel itself.
 	MessageType string `db:"message_type" json:"message_type"`
+	// Tags are the contact's interest tags, normalized and sorted. Only
+	// adminGetContacts aggregates them; other SELECT * FROM contacts loads
+	// leave this empty.
+	Tags pq.StringArray `db:"tags" json:"tags"`
 }
 
 type InviteWithContact struct {
@@ -100,6 +108,15 @@ type AddInviteeRequest struct {
 	// Message is the invite text queued when the event is already launched.
 	// Nil falls back to the built-in default invite. See renderMessage for
 	// placeholders.
+	Message     *string `json:"message"`
+	IncludeLink *bool   `json:"include_link"`
+}
+
+// BulkAddInviteesRequest invites several existing contacts in one call.
+// Message and IncludeLink mean the same as on AddInviteeRequest and apply to
+// every invite text queued when the event is already launched.
+type BulkAddInviteesRequest struct {
+	ContactIDs  []int   `json:"contact_ids" binding:"required"`
 	Message     *string `json:"message"`
 	IncludeLink *bool   `json:"include_link"`
 }

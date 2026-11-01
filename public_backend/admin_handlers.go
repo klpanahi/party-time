@@ -11,14 +11,28 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 func (env *Env) adminGetContacts(c *gin.Context) {
 	contacts := []Contact{}
-	if err := env.db.Select(&contacts, "SELECT * FROM contacts ORDER BY first_name, last_name"); err != nil {
+	sql := `SELECT c.*,
+	               COALESCE(array_agg(t.tag ORDER BY t.tag) FILTER (WHERE t.tag IS NOT NULL), '{}') AS tags
+	        FROM contacts c
+	        LEFT JOIN contact_tags t ON t.contact_id = c.id
+	        GROUP BY c.id
+	        ORDER BY c.first_name, c.last_name`
+	if err := env.db.Select(&contacts, sql); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	for i := range contacts {
+		// Always serve an array, never null, so the UI can map over it.
+		if contacts[i].Tags == nil {
+			contacts[i].Tags = pq.StringArray{}
+		}
 	}
 	c.JSON(http.StatusOK, contacts)
 }
@@ -32,6 +46,50 @@ type contactRequest struct {
 	PhoneNumber string `json:"phone_number" binding:"required"`
 	Notes       string `json:"notes"`
 	MessageType string `json:"message_type"`
+	// Tags replaces the contact's interest tags. Nil (omitted) leaves them as
+	// they are, so a client that predates tags never wipes them; an empty list
+	// clears them.
+	Tags []string `json:"tags"`
+}
+
+// maxTagLength bounds a single interest tag. Tags are short labels shown as
+// chips, not notes.
+const maxTagLength = 40
+
+// normalizeTags trims, lowercases and collapses inner whitespace in each tag,
+// dropping blanks and duplicates, so "Board  Games" and "board games" are the
+// same tag. Returns an error naming the first tag that is too long.
+func normalizeTags(tags []string) ([]string, error) {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.ToLower(strings.Join(strings.Fields(t), " "))
+		if t == "" || seen[t] {
+			continue
+		}
+		if len([]rune(t)) > maxTagLength {
+			return nil, fmt.Errorf("tag %q is longer than %d characters", t, maxTagLength)
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// replaceContactTags sets a contact's tags to exactly tags (already
+// normalized), inside the caller's transaction.
+func replaceContactTags(tx *sqlx.Tx, contactID int, tags []string) error {
+	if _, err := tx.Exec("DELETE FROM contact_tags WHERE contact_id = $1", contactID); err != nil {
+		return err
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(
+		`INSERT INTO contact_tags (contact_id, tag) SELECT $1, unnest($2::text[])`,
+		contactID, pq.Array(tags),
+	)
+	return err
 }
 
 // defaultMessageType matches the column default in the migration. New contacts
@@ -62,6 +120,14 @@ func bindContact(c *gin.Context, req *contactRequest) bool {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "message_type must be 'imessage' or 'sms'"})
 		return false
 	}
+	if req.Tags != nil {
+		tags, err := normalizeTags(req.Tags)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return false
+		}
+		req.Tags = tags
+	}
 	return true
 }
 
@@ -71,10 +137,28 @@ func (env *Env) adminCreateContact(c *gin.Context) {
 		return
 	}
 
+	tx, err := env.db.Beginx()
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer tx.Rollback()
+
 	var id int
 	sql := `INSERT INTO contacts (first_name, last_name, phone_number, notes, message_type)
 	        VALUES ($1, $2, $3, $4, $5) RETURNING id`
-	if err := env.db.QueryRow(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType).Scan(&id); err != nil {
+	if err := tx.QueryRow(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType).Scan(&id); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := replaceContactTags(tx, id, req.Tags); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -90,8 +174,34 @@ func (env *Env) adminUpdateContact(c *gin.Context) {
 		return
 	}
 
+	contactID, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contact id"})
+		return
+	}
+
+	tx, err := env.db.Beginx()
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer tx.Rollback()
+
 	sql := `UPDATE contacts SET first_name=$1, last_name=$2, phone_number=$3, notes=$4, message_type=$5 WHERE id=$6`
-	if _, err := env.db.Exec(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType, id); err != nil {
+	if _, err := tx.Exec(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType, contactID); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Tags != nil {
+		if err := replaceContactTags(tx, contactID, req.Tags); err != nil {
+			fmt.Println(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -295,6 +405,118 @@ func (env *Env) adminAddInvitee(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"invite_id": inviteID, "contact_id": contactID})
+}
+
+// adminBulkAddInvitees invites several existing contacts at once — typically
+// everyone the admin filtered to by interest tag. Contacts already on the event
+// are skipped rather than invited twice. On a launched event each new invitee
+// is queued the same invite text adminAddInvitee would send them. All of it is
+// one transaction, so a bad id or a failure part-way adds nobody.
+func (env *Env) adminBulkAddInvitees(c *gin.Context) {
+	eventID := c.Param("id")
+	if !env.requireActiveEvent(c, eventID) {
+		return
+	}
+
+	var req BulkAddInviteesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.ContactIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "contact_ids must not be empty"})
+		return
+	}
+
+	tx, err := env.db.Beginx()
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer tx.Rollback()
+
+	// Lock the event so a concurrent launch can't slip between inserting the
+	// invites and deciding whether they need texts.
+	event := Event{}
+	if err := tx.Get(&event, "SELECT * FROM events WHERE id = $1 FOR UPDATE", eventID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return
+	}
+
+	var known int
+	if err := tx.QueryRow(
+		"SELECT count(*) FROM contacts WHERE id = ANY($1)", pq.Array(req.ContactIDs),
+	).Scan(&known); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	requested := map[int]bool{}
+	for _, id := range req.ContactIDs {
+		requested[id] = true
+	}
+	if known != len(requested) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "one or more contact_ids do not exist"})
+		return
+	}
+
+	type added struct {
+		InviteID  string `db:"id"         json:"invite_id"`
+		ContactID int    `db:"contact_id" json:"contact_id"`
+		FirstName string `db:"first_name" json:"-"`
+	}
+	invited := []added{}
+	if err := tx.Select(&invited,
+		`WITH ins AS (
+		     INSERT INTO invites (event_id, contact_id)
+		     SELECT $1, ids.id
+		     FROM (SELECT DISTINCT unnest($2::bigint[]) AS id) ids
+		     WHERE NOT EXISTS (
+		         SELECT 1 FROM invites i WHERE i.event_id = $1 AND i.contact_id = ids.id
+		     )
+		     RETURNING id, contact_id
+		 )
+		 SELECT ins.id, ins.contact_id, c.first_name
+		 FROM ins JOIN contacts c ON c.id = ins.contact_id
+		 ORDER BY c.first_name, c.last_name`,
+		eventID, pq.Array(req.ContactIDs),
+	); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if event.Status == "launched" {
+		template := defaultInviteTemplate(event)
+		if req.Message != nil {
+			template = *req.Message
+		}
+		includeLink := boolOr(req.IncludeLink, true)
+		for _, inv := range invited {
+			inviteURL := fmt.Sprintf("%s/invite/%s", env.inviteeBase, inv.InviteID)
+			content := renderMessage(template, inv.FirstName, inviteURL, includeLink)
+			if _, err := tx.Exec(
+				`INSERT INTO texts (contact_id, content, event_id, status) VALUES ($1, $2, $3, 'pending')`,
+				inv.ContactID, content, eventID,
+			); err != nil {
+				fmt.Println(err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"added":   invited,
+		"skipped": len(requested) - len(invited),
+	})
 }
 
 func (env *Env) adminSendMessage(c *gin.Context) {

@@ -13,6 +13,11 @@ contacts
   notes         text NOT NULL DEFAULT ''          -- admin-only; never served to invitees or the sender
   message_type  varchar NOT NULL DEFAULT 'imessage' -- 'imessage' | 'sms'; the channel the sender uses
 
+contact_tags                                 -- interest tags ("hiking"); no separate tags table
+  contact_id    bigint → contacts.id ON DELETE CASCADE
+  tag           text NOT NULL                -- normalized: trimmed, lowercased, whitespace collapsed
+  PK (contact_id, tag), INDEX contact_tags_tag_idx (tag)
+
 events
   id                bigint IDENTITY PK
   name              varchar NOT NULL
@@ -57,6 +62,7 @@ texts
 ## Relationships
 ```
 contacts ──< invites >── events
+contacts ──< contact_tags
 contacts ──< texts
 events   ──< messages ──< texts
 ```
@@ -68,5 +74,6 @@ events   ──< messages ──< texts
 - Invite IDs are UUIDs — safe to embed in SMS links
 - `texts.content` is the rendered per-recipient text ({name} expanded, RSVP link appended if chosen); NULL means resolve via `messages.content`
 - `00005_event_invite_message.sql` adds `events.invite_message` / `invite_include_link`
+- `00006_contact_tags.sql` adds `contact_tags`; a tag exists while any contact carries it
 - `contacts.phone_number` has unique constraint — upsert used in `adminAddInvitee`
 - `texts` is the SMS outbox: rows enter `pending`, the worker (`worker.go`) drives `sending → sent|failed`

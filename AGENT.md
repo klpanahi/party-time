@@ -152,12 +152,17 @@ All three `TWILIO_*` vars must be set for SMS to send; if any is missing the tex
 | GET | `/admin/events/:id` | Event + invitee list with `invite_url` and `opened_at` |
 | PUT | `/admin/events/:id` | Update event fields |
 | POST | `/admin/events/:id/invites` | Add invitee — existing contact or new |
+| POST | `/admin/events/:id/invites/bulk` | Add several existing contacts at once |
 | POST | `/admin/events/:id/messages` | Queue message as pending texts to non-declined invitees |
 | GET | `/admin/events/:id/texts` | List queued/sent texts for an event (incl. `status`, `error`, `provider_sid`, `sent_at`) |
 | POST | `/admin/events/:id/launch` | Transition event `draft → launched`, queue invite texts |
 | POST | `/admin/texts/:id/resend` | Requeue a `failed` text (`failed → pending`); 409 if not failed |
 
 `POST /admin/events/:id/invites` accepts either `{ "contact_id": N }` or `{ "first_name", "last_name", "phone_number" }` (upserts contact by phone). If the event is already launched, an invite text is queued immediately for the new invitee, using the optional `message` / `include_link` fields (default invite and link on when omitted).
+
+`POST /admin/events/:id/invites/bulk` takes `{ "contact_ids": [...], "message", "include_link" }`. Contacts already on the event are skipped; an unknown id is a 400 and adds nobody (one transaction). On a launched event each new invitee is queued the same invite text the single add would send. Returns `{ added: [{invite_id, contact_id}], skipped }`.
+
+**Interest tags.** Contacts carry free-text `tags` (table `contact_tags`). `GET /admin/contacts` returns them sorted; `POST`/`PUT` take an optional `tags` array, normalized server-side (trimmed, lowercased, whitespace collapsed, deduped, max 40 chars). On `PUT` an omitted `tags` leaves them unchanged and `[]` clears them. There is no tags endpoint: the admin UI derives suggestions and filter chips from the contact list. Filtering by several tags matches contacts with **any** of them.
 
 `POST /admin/events/:id/launch` requires at least one invitee; inserts a pending text per invitee and sets `events.status = 'launched'`. Returns 409 if already launched. Optional body `{ "content", "include_link" }` replaces the default invite (blank `content` is a 400); the template is stored on `events.invite_message` / `invite_include_link` so the admin UI can offer it again for late additions.
 
@@ -218,7 +223,7 @@ React 19 + Vite. Not publicly accessible — requires the backend admin pod.
 - **Auto-save:** all event fields debounce 800 ms then call `PUT /admin/events/:id`. On load, `event.date` is normalised to `YYYY-MM-DDTHH:MM` via `toDatetimeLocal()` so non-date field changes still send a valid date string to `parseCentralTime()`.
 - **Tabs:** Invitees | Messages
 - **Invitees tab:** table with Name, Phone, RSVP badge, +Guests, Opened timestamp, and an Invite Link copy button.
-  - **Add Invitee modal** — two tabs: *From Contacts* (search, click to invite) and *New Contact* (upserts by phone number).
+  - **Add Invitees modal** — two tabs: *From Contacts* (search + interest-tag filter, tick contacts or "Select all N shown", then add them in one bulk request) and *New Contact* (upserts by phone number).
   - **Send a Message** section: queues a broadcast to all non-declined invitees; an "Include invite link" box (ticked by default) appends each recipient's personal RSVP link.
   - **Add Invitee on a launched event**: after picking/creating the contact, a compose step shows the invite (prefilled with the launch message) and the link box before anything is sent.
   - **"Notify invitees of changes"** button (launched events only): pre-fills the message textarea with a stock update notice and scrolls/focuses to it.
@@ -228,6 +233,7 @@ React 19 + Vite. Not publicly accessible — requires the backend admin pod.
 
 **Contacts (`/contacts`)**
 - "+ Add Contact" and per-row Edit button both open a modal form that creates or updates via the contacts API.
+- Interest tags show as chips per row; the chip bar above the table filters the list (any selected tag). The form's tag editor adds on Enter/comma/blur and suggests existing tags.
 
 ### API Client (`src/api.js`)
 
@@ -243,6 +249,7 @@ All calls target `http://localhost:8080/admin`. Throws on non-2xx.
 | `createEvent` | POST | `/events` |
 | `updateEvent` | PUT | `/events/:id` |
 | `addInvitee` | POST | `/events/:id/invites` |
+| `addInvitees` | POST | `/events/:id/invites/bulk` |
 | `sendMessage` | POST | `/events/:id/messages` |
 | `getTexts` | GET | `/events/:id/texts` |
 | `launchEvent` | POST | `/events/:id/launch` |

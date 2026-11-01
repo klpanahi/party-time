@@ -97,6 +97,7 @@ func main() {
 		admin.DELETE("/events/:id", env.adminDeleteEvent)
 		admin.POST("/events/:id/cancel", env.adminCancelEvent)
 		admin.POST("/events/:id/invites", env.adminAddInvitee)
+		admin.POST("/events/:id/invites/bulk", env.adminBulkAddInvitees)
 		admin.POST("/events/:id/messages", env.adminSendMessage)
 		admin.GET("/events/:id/texts", env.adminGetTexts)
 		admin.POST("/events/:id/launch", env.adminLaunchEvent)

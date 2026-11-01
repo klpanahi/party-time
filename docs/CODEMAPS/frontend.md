@@ -9,13 +9,14 @@
 App.jsx
 ├── / → EventSummary.jsx      — event list (upcoming/past) with RSVP counts; create event modal
 ├── /event/:id → EventDetails.jsx — auto-save event form; tabs: Invitees | Messages
-│     ├── Invitees tab: invitee table (RSVP, opened_at, invite link), add invitee modal
-│     │   (launched events: compose step to review the invite before it's sent)
+│     ├── Invitees tab: invitee table (RSVP, opened_at, invite link), add invitees modal
+│     │   (From Contacts: tag filter + search, checkboxes, "Select all N shown", one bulk add;
+│     │    launched events: compose step to review the invite before it's sent)
 │     │   "Notify invitees of changes" quick-compose (launched events only)
 │     │   Send a Message form (non-declined invitees; "Include invite link" box, default on)
 │     ├── LaunchModal: editable invite draft ({name} placeholder) + include-link box
 │     └── Messages tab: texts log with expandable content rows
-└── /contacts → Contacts.jsx  — contact list, create/edit contact modal
+└── /contacts → Contacts.jsx  — contact list with interest-tag filter, create/edit contact modal (tag editor)
 ```
 
 ### API Layer
@@ -29,6 +30,7 @@ getEvent(id)         GET  /admin/events/:id
 createEvent(data)    POST /admin/events
 updateEvent(id)      PUT  /admin/events/:id
 addInvitee(eid,data) POST /admin/events/:id/invites
+addInvitees(eid,data) POST /admin/events/:id/invites/bulk  (data = { contact_ids, message?, include_link? })
 sendMessage(eid,msg,includeLink) POST /admin/events/:id/messages
 launchEvent(eid,msg) POST /admin/events/:id/launch  (msg = { content, include_link })
 getTexts(eid)        GET  /admin/events/:id/texts
@@ -36,6 +38,8 @@ getTexts(eid)        GET  /admin/events/:id/texts
 
 ### Utilities
 `admin_ui/src/dateUtils.js` — date formatting helpers
+`admin_ui/src/tagUtils.js` — tag normalization, distinct tags, any-of tag matching
+`admin_ui/src/tags.jsx` — TagChips, TagFilter (toggle chips), TagInput (editor with suggestions)
 
 ### Testing
 - Vitest + Testing Library + MSW; coverage via `@vitest/coverage-v8`
@@ -44,7 +48,8 @@ getTexts(eid)        GET  /admin/events/:id/texts
 - `src/test/msw/server.js` — MSW server setup
 - `src/pages/EventSummary.test.jsx` — event list, create event, upcoming/past split
 - `src/pages/EventDetails.test.jsx` — invitee tab, messages tab, launch, add invitee, send message, notify changes
-- `src/pages/Contacts.test.jsx` — contact list, add/edit contact
+- `src/pages/Contacts.test.jsx` — contact list, add/edit contact, interest tags
+- `src/tagUtils.test.js` — tag helpers
 - `src/dateUtils.test.js` — date formatting
 
 ---
