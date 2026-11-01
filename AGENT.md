@@ -72,6 +72,14 @@ All seeded texts are terminal (`sent`/`failed`) with fake numbers — there are 
 
 `build.sh` runs `test.sh` as its first step.
 
+`test.sh` and `e2e.sh` each start their Postgres in a compose project of their
+own per checkout (`party-time-test-<hash>` / `party-time-e2e-<hash>`, from the
+checkout path) on a free host port, pass that port to the Go code as `DBPORT`,
+and remove the container and its volume (`down -v`) on exit. Runs from the main
+checkout and from worktrees can't collide, and leave nothing in `docker ps -a`.
+`docker-compose.yml` has no `container_name`, so `run_local.sh`'s dev database
+is per checkout too (`<checkout dir>-postgres-db-1`, on 5432).
+
 ### Deploying
 
 `./deploy.sh` is the single post-merge command — see the "Deploying" section

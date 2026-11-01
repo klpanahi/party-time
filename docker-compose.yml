@@ -1,7 +1,11 @@
+# Local dev / test Postgres. No container_name on purpose: compose names the
+# container after the project, so each checkout (main, every worktree) gets
+# its own and a leftover from one can never block another. test.sh and e2e.sh
+# also pass their own -p project and a free host port (PARTY_TIME_DB_PORT=0);
+# run_local.sh uses the default project on 5432.
 services:
   postgres-db:
     image: postgres:latest
-    container_name: party-time-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: myuser
@@ -9,7 +13,7 @@ services:
       POSTGRES_DB: party_time
       PGDATA: /var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${PARTY_TIME_DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 

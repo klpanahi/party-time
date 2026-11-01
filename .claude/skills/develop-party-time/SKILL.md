@@ -164,7 +164,7 @@ public backend that exposes admin data.
 Or individually:
 
 ```bash
-cd public_backend && go test ./... -count=1   # needs Docker (Postgres)
+cd public_backend && go test ./... -count=1   # needs a Postgres on DBPORT (default 5432), e.g. run_local.sh's
 cd admin_ui   && npx vitest run
 cd invitee_ui && npx vitest run
 ```
