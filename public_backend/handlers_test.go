@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"example/web-service-gin/phone"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,7 +49,7 @@ func TestContacts(t *testing.T) {
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Alice",
 			"last_name":    "Smith",
-			"phone_number": "5550001111",
+			"phone_number": "(512) 555-1111",
 		})
 		assertStatus(t, w, 201)
 		var resp map[string]any
@@ -65,7 +67,7 @@ func TestContacts(t *testing.T) {
 		if len(list) != 1 {
 			t.Fatalf("expected 1 contact, got %d", len(list))
 		}
-		if list[0].FirstName != "Alice" || list[0].PhoneNumber != "5550001111" {
+		if list[0].FirstName != "Alice" || list[0].PhoneNumber != "+15125551111" {
 			t.Errorf("unexpected contact: %+v", list[0])
 		}
 		// Neither field was supplied on create, so both should come back at
@@ -81,7 +83,7 @@ func TestContacts(t *testing.T) {
 	t.Run("create stores notes and message type", func(t *testing.T) {
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Sam",
-			"phone_number": "5550003333",
+			"phone_number": "512-555-3333",
 			"message_type": "sms",
 			"notes":        "Android phone — iMessage never lands",
 		})
@@ -92,7 +94,7 @@ func TestContacts(t *testing.T) {
 		mustDecode(t, w, &list)
 		var found *Contact
 		for i := range list {
-			if list[i].PhoneNumber == "5550003333" {
+			if list[i].PhoneNumber == "+15125553333" {
 				found = &list[i]
 			}
 		}
@@ -110,18 +112,18 @@ func TestContacts(t *testing.T) {
 	t.Run("create with unknown message type returns 400", func(t *testing.T) {
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Bad",
-			"phone_number": "5550004444",
+			"phone_number": "5125554444",
 			"message_type": "carrier-pigeon",
 		})
 		assertStatus(t, w, 400)
 	})
 
 	t.Run("update contact", func(t *testing.T) {
-		contactID := seedContact(t, "Bob", "Jones", "5550002222")
+		contactID := seedContact(t, "Bob", "Jones", "+15125552222")
 		w := do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", contactID), map[string]any{
 			"first_name":   "Robert",
 			"last_name":    "Jones",
-			"phone_number": "5550002222",
+			"phone_number": "512.555.2222",
 			"message_type": "sms",
 			"notes":        "Prefers a heads up the day before",
 		})
@@ -142,16 +144,19 @@ func TestContacts(t *testing.T) {
 		if found.FirstName != "Robert" {
 			t.Errorf("first_name = %q, want Robert", found.FirstName)
 		}
+		if found.PhoneNumber != "+15125552222" {
+			t.Errorf("phone_number = %q, want +15125552222", found.PhoneNumber)
+		}
 		if found.MessageType != "sms" || found.Notes != "Prefers a heads up the day before" {
 			t.Errorf("notes/message_type not persisted: %+v", *found)
 		}
 	})
 
 	t.Run("update with unknown message type returns 400", func(t *testing.T) {
-		contactID := seedContact(t, "Nope", "Nope", "5550005555")
+		contactID := seedContact(t, "Nope", "Nope", "+15125555555")
 		w := do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", contactID), map[string]any{
 			"first_name":   "Nope",
-			"phone_number": "5550005555",
+			"phone_number": "5125555555",
 			"message_type": "fax",
 		})
 		assertStatus(t, w, 400)
@@ -162,6 +167,57 @@ func TestContacts(t *testing.T) {
 			"first_name": "NoPhone",
 		})
 		assertStatus(t, w, 400)
+	})
+
+	t.Run("unparseable phone on create returns 400 and stores nothing", func(t *testing.T) {
+		before := countContacts(t)
+		w := do(t, r, "POST", "/admin/contacts", map[string]any{
+			"first_name":   "Garbage",
+			"phone_number": "call me maybe",
+		})
+		assertStatus(t, w, 400)
+		var resp map[string]string
+		mustDecode(t, w, &resp)
+		if resp["error"] != phone.ErrInvalid.Error() {
+			t.Errorf("error = %q, want %q", resp["error"], phone.ErrInvalid.Error())
+		}
+		if after := countContacts(t); after != before {
+			t.Errorf("contacts went from %d to %d, want nothing stored", before, after)
+		}
+	})
+
+	t.Run("unparseable phone on update returns 400 and keeps the old number", func(t *testing.T) {
+		contactID := seedContact(t, "Keep", "Me", "+15125556666")
+		w := do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", contactID), map[string]any{
+			"first_name":   "Changed",
+			"phone_number": "12345",
+		})
+		assertStatus(t, w, 400)
+
+		var name, phone string
+		if err := testDB.QueryRow("SELECT first_name, phone_number FROM contacts WHERE id = $1", contactID).
+			Scan(&name, &phone); err != nil {
+			t.Fatal(err)
+		}
+		if name != "Keep" || phone != "+15125556666" {
+			t.Errorf("contact changed to %q / %q, want it untouched", name, phone)
+		}
+	})
+
+	t.Run("number that collides with another contact once normalized returns 409", func(t *testing.T) {
+		seedContact(t, "First", "Owner", "+15125557777")
+		w := do(t, r, "POST", "/admin/contacts", map[string]any{
+			"first_name":   "Second",
+			"phone_number": "(512) 555-7777",
+		})
+		assertStatus(t, w, 409)
+
+		other := seedContact(t, "Other", "Person", "+15125557778")
+		w = do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", other), map[string]any{
+			"first_name":   "Other",
+			"phone_number": "512 555 7777",
+		})
+		assertStatus(t, w, 409)
 	})
 }
 
@@ -398,7 +454,7 @@ func TestAddInvitee(t *testing.T) {
 		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/invites", eventID), map[string]any{
 			"first_name":   "Eve",
 			"last_name":    "Green",
-			"phone_number": "5550005555",
+			"phone_number": "+1 (512) 555-0555",
 		})
 		assertStatus(t, w, 201)
 
@@ -408,12 +464,26 @@ func TestAddInvitee(t *testing.T) {
 		mustDecode(t, w, &contacts)
 		var found bool
 		for _, c := range contacts {
-			if c.PhoneNumber == "5550005555" && c.FirstName == "Eve" {
+			if c.PhoneNumber == "+15125550555" && c.FirstName == "Eve" {
 				found = true
 			}
 		}
 		if !found {
 			t.Error("new contact not found after adding invitee")
+		}
+	})
+
+	t.Run("new contact with unparseable phone returns 400 and creates nothing", func(t *testing.T) {
+		eventID := seedEvent(t, "Bad Phone Party", futureDate(), "draft")
+		before := countContacts(t)
+
+		w := do(t, r, "POST", fmt.Sprintf("/admin/events/%d/invites", eventID), map[string]any{
+			"first_name":   "Bad",
+			"phone_number": "not-a-number",
+		})
+		assertStatus(t, w, 400)
+		if after := countContacts(t); after != before {
+			t.Errorf("contacts went from %d to %d, want nothing stored", before, after)
 		}
 	})
 

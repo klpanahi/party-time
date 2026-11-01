@@ -76,4 +76,5 @@ events   ──< messages ──< texts
 - `00005_event_invite_message.sql` adds `events.invite_message` / `invite_include_link`
 - `00006_contact_tags.sql` adds `contact_tags`; a tag exists while any contact carries it
 - `contacts.phone_number` has unique constraint — upsert used in `adminAddInvitee`
+- `contacts.phone_number` is E.164 (`+15123500064`), normalized by the backend on every write (card #27); older rows were backfilled through the API with `ops/normalize-phones.sh`
 - `texts` is the SMS outbox: rows enter `pending`, the worker (`worker.go`) drives `sending → sent|failed`

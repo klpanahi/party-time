@@ -4,6 +4,8 @@ import { getEvent, updateEvent, addInvitee, addInvitees, sendMessage, getContact
 import { toDatetimeLocal, formatDateShort, formatDateLong } from '../dateUtils'
 import { TagChips, TagFilter } from '../tags'
 import { allTagsOf, matchesTags } from '../tagUtils'
+import { normalizePhone, formatPhone, phoneMatches, PHONE_ERROR } from '../phone'
+import PhoneField from '../PhoneField'
 
 const STATUS_LABELS = {
   draft: 'Draft',
@@ -365,7 +367,7 @@ export default function EventDetails() {
                     {invitees.map((inv) => (
                       <tr key={inv.id}>
                         <td>{inv.first_name} {inv.last_name}</td>
-                        <td className="mono">{inv.phone_number}</td>
+                        <td className="mono">{formatPhone(inv.phone_number)}</td>
                         <td><RSVPBadge status={inv.rsvp_status} /></td>
                         <td>{inv.additional_guests > 0 ? `+${inv.additional_guests}` : '—'}</td>
                         <td>{inv.opened_at
@@ -495,7 +497,7 @@ function MessagesTab({ texts, error, onReload }) {
               <tr key={t.id}>
                 <td className="text-muted" style={{ whiteSpace: 'nowrap' }}>{formatDateShort(t.created_at)}</td>
                 <td>{t.first_name} {t.last_name}</td>
-                <td className="mono">{t.phone_number}</td>
+                <td className="mono">{formatPhone(t.phone_number)}</td>
                 <td><TextStatusBadge status={t.status} /></td>
                 <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                   <select
@@ -665,6 +667,7 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
   // Contacts ticked in the From Contacts list, added together in one request.
   const [selected, setSelected] = useState(() => new Set())
   const [tagFilter, setTagFilter] = useState([])
+  const [phoneError, setPhoneError] = useState(null)
   // On a launched event, adding someone texts them straight away, so the invite
   // is reviewed first: picking a contact or filling the form leads to a compose
   // step, prefilled with the message the event was launched with.
@@ -685,7 +688,7 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
     return (
       c.first_name.toLowerCase().includes(q) ||
       c.last_name.toLowerCase().includes(q) ||
-      c.phone_number.includes(q)
+      phoneMatches(c.phone_number, q)
     )
   })
 
@@ -745,7 +748,12 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
 
   function handleCreateNew(ev) {
     ev.preventDefault()
-    proceed(newForm, `${newForm.first_name} ${newForm.last_name}`.trim())
+    const phone = normalizePhone(newForm.phone_number)
+    if (!phone) {
+      setPhoneError(PHONE_ERROR)
+      return
+    }
+    proceed({ ...newForm, phone_number: phone }, `${newForm.first_name} ${newForm.last_name}`.trim())
   }
 
   function handleSendInvite() {
@@ -839,7 +847,7 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
                   />
                   <span className="contact-name">{c.first_name} {c.last_name}</span>
                   <TagChips tags={c.tags} />
-                  <span className="contact-phone mono">{c.phone_number}</span>
+                  <span className="contact-phone mono">{formatPhone(c.phone_number)}</span>
                 </label>
               ))}
             </div>
@@ -870,10 +878,8 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
               <input value={newForm.last_name}
                 onChange={(e) => setNewForm({ ...newForm, last_name: e.target.value })} />
             </label>
-            <label>Phone Number
-              <input required value={newForm.phone_number}
-                onChange={(e) => setNewForm({ ...newForm, phone_number: e.target.value })} />
-            </label>
+            <PhoneField value={newForm.phone_number} error={phoneError}
+              onChange={(v) => { setNewForm({ ...newForm, phone_number: v }); setPhoneError(null) }} />
             <div className="form-actions">
               <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
               <button type="submit" className="btn-primary" disabled={submitting}>

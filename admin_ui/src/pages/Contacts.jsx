@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { getContacts, createContact, updateContact } from '../api'
 import { TagChips, TagFilter, TagInput } from '../tags'
 import { allTagsOf, matchesTags } from '../tagUtils'
+import { normalizePhone, formatPhone, PHONE_ERROR } from '../phone'
+import PhoneField from '../PhoneField'
 
 // How each contact gets texted. The sender script reads message_type straight
 // off the contact instead of trying iMessage and falling back, so this is the
@@ -87,7 +89,7 @@ export default function Contacts() {
                   <tr key={c.id}>
                     <td>{c.first_name}</td>
                     <td>{c.last_name || <span className="text-muted">—</span>}</td>
-                    <td className="mono">{c.phone_number}</td>
+                    <td className="mono">{formatPhone(c.phone_number)}</td>
                     <td>{MESSAGE_TYPE_LABELS[c.message_type] ?? c.message_type}</td>
                     <td>{c.tags?.length ? <TagChips tags={c.tags} /> : <span className="text-muted">—</span>}</td>
                     <td className="notes-cell">{c.notes || <span className="text-muted">—</span>}</td>
@@ -108,20 +110,26 @@ function ContactModal({ title, initial = {}, allTags = [], onSave, onClose }) {
   const [form, setForm] = useState({
     first_name: initial.first_name || '',
     last_name: initial.last_name || '',
-    phone_number: initial.phone_number || '',
+    phone_number: initial.phone_number ? formatPhone(initial.phone_number) : '',
     message_type: initial.message_type || 'imessage',
     notes: initial.notes || '',
     tags: initial.tags || [],
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [phoneError, setPhoneError] = useState(null)
 
   async function handleSubmit(ev) {
     ev.preventDefault()
+    const phone = normalizePhone(form.phone_number)
+    if (!phone) {
+      setPhoneError(PHONE_ERROR)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
-      await onSave(form)
+      await onSave({ ...form, phone_number: phone })
     } catch (e) {
       setError(e.message)
       setSaving(false)
@@ -142,10 +150,8 @@ function ContactModal({ title, initial = {}, allTags = [], onSave, onClose }) {
             <input value={form.last_name}
               onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
           </label>
-          <label>Phone Number
-            <input required value={form.phone_number}
-              onChange={(e) => setForm({ ...form, phone_number: e.target.value })} />
-          </label>
+          <PhoneField value={form.phone_number} error={phoneError}
+            onChange={(v) => { setForm({ ...form, phone_number: v }); setPhoneError(null) }} />
           <label>Message Type
             <select value={form.message_type}
               onChange={(e) => setForm({ ...form, message_type: e.target.value })}>

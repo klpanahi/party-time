@@ -166,6 +166,14 @@ All three `TWILIO_*` vars must be set for SMS to send; if any is missing the tex
 | POST | `/admin/events/:id/launch` | Transition event `draft → launched`, queue invite texts |
 | POST | `/admin/texts/:id/resend` | Requeue a `failed` text (`failed → pending`); 409 if not failed |
 
+**Phone numbers** are stored in E.164 (`+15123500064`). Every contact write
+(`POST`/`PUT /admin/contacts`, a new contact on `POST /admin/events/:id/invites`)
+runs `phone.Normalize` (`public_backend/phone/`, nyaruka/phonenumbers, US default
+region), so any typed format is accepted. Unparseable input is a 400 and nothing
+is stored; a number another contact already has once normalized is a 409. The
+admin UI runs the same check first (`src/phone.js`) and shows an inline error
+under the field.
+
 `POST /admin/events/:id/invites` accepts either `{ "contact_id": N }` or `{ "first_name", "last_name", "phone_number" }` (upserts contact by phone). If the event is already launched, an invite text is queued immediately for the new invitee, using the optional `message` / `include_link` fields (default invite and link on when omitted).
 
 `POST /admin/events/:id/invites/bulk` takes `{ "contact_ids": [...], "message", "include_link" }`. Contacts already on the event are skipped; an unknown id is a 400 and adds nobody (one transaction). On a launched event each new invitee is queued the same invite text the single add would send. Returns `{ added: [{invite_id, contact_id}], skipped }`.

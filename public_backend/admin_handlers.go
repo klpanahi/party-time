@@ -13,6 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+
+	"example/web-service-gin/phone"
 )
 
 func (env *Env) adminGetContacts(c *gin.Context) {
@@ -105,14 +107,20 @@ var validMessageTypes = map[string]bool{
 	"sms":      true,
 }
 
-// bindContact parses and validates a contact body, normalizing an omitted
-// message_type to the default. Writes the response and reports false on a bad
-// request, so callers just return.
+// bindContact parses and validates a contact body, normalizing the phone number
+// to E.164 and an omitted message_type to the default. Writes the response and
+// reports false on a bad request, so callers just return.
 func bindContact(c *gin.Context, req *contactRequest) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return false
 	}
+	normalized, err := phone.Normalize(req.PhoneNumber)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return false
+	}
+	req.PhoneNumber = normalized
 	if req.MessageType == "" {
 		req.MessageType = defaultMessageType
 	}
@@ -149,6 +157,10 @@ func (env *Env) adminCreateContact(c *gin.Context) {
 	sql := `INSERT INTO contacts (first_name, last_name, phone_number, notes, message_type)
 	        VALUES ($1, $2, $3, $4, $5) RETURNING id`
 	if err := tx.QueryRow(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType).Scan(&id); err != nil {
+		if isUniqueViolation(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": errDuplicatePhone})
+			return
+		}
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -190,6 +202,10 @@ func (env *Env) adminUpdateContact(c *gin.Context) {
 
 	sql := `UPDATE contacts SET first_name=$1, last_name=$2, phone_number=$3, notes=$4, message_type=$5 WHERE id=$6`
 	if _, err := tx.Exec(sql, req.FirstName, req.LastName, req.PhoneNumber, req.Notes, req.MessageType, contactID); err != nil {
+		if isUniqueViolation(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": errDuplicatePhone})
+			return
+		}
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -364,6 +380,12 @@ func (env *Env) adminAddInvitee(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "first_name and phone_number are required for new contacts"})
 			return
 		}
+		normalized, err := phone.Normalize(req.PhoneNumber)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		req.PhoneNumber = normalized
 		upsertContact := `
 			INSERT INTO contacts (first_name, last_name, phone_number)
 			VALUES ($1, $2, $3)
