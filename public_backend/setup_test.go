@@ -16,9 +16,13 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// The test Postgres port. test.sh starts its database on a free host port
+// and passes it in as DBPORT, so parallel checkouts never share one.
+var testDBPort = getenv("DBPORT", "5432")
+
 // The one DSN for the test database. Both the test connection and the
 // migration run use it, so they can't end up pointed at different databases.
-const testDSN = "host=127.0.0.1 port=5432 user=myuser password=mypassword dbname=party_time_test sslmode=disable search_path=party_time"
+var testDSN = "host=127.0.0.1 port=" + testDBPort + " user=myuser password=mypassword dbname=party_time_test sslmode=disable search_path=party_time"
 
 var (
 	testEnv *Env
@@ -30,7 +34,7 @@ func TestMain(m *testing.M) {
 
 	// Connect to the default postgres database to create the test database.
 	adminDB, err := sqlx.Connect("postgres",
-		"host=127.0.0.1 port=5432 user=myuser password=mypassword dbname=postgres sslmode=disable")
+		"host=127.0.0.1 port="+testDBPort+" user=myuser password=mypassword dbname=postgres sslmode=disable")
 	if err != nil {
 		log.Fatalf("connect admin: %v", err)
 	}

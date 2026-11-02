@@ -15,7 +15,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-COMPOSE="docker-compose -f $ROOT/docker-compose.yml"
+# Own compose project per checkout + a free host port for Postgres, like
+# test.sh, so its database never collides with another checkout's. (The
+# backend on :8080 and the edge on :8090/:8091 are still fixed ports, so two
+# e2e runs can't overlap; they just no longer leave anything behind.)
+COMPOSE="docker compose -p party-time-e2e-$(printf '%s' "$ROOT" | shasum | cut -c1-8) -f $ROOT/docker-compose.yml"
 EDGE="docker compose -f $ROOT/docker-compose.local-edge.yml"
 PUBLIC_BASE="http://localhost:8090"
 ADMIN_BASE="http://localhost:8091"
@@ -38,7 +42,7 @@ cleanup() {
     wait "$BACKEND_PID" 2>/dev/null || true
   fi
   $EDGE down 2>/dev/null || true
-  $COMPOSE stop 2>/dev/null || true
+  $COMPOSE down -v --remove-orphans 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -60,10 +64,12 @@ fi
 
 # ── 2. Fresh seeded database ──────────────────────────────────────────────
 echo "Starting database..."
-$COMPOSE up -d
-until $COMPOSE exec -T postgres-db pg_isready -q 2>/dev/null; do
+PARTY_TIME_DB_PORT=0 $COMPOSE up -d
+until $COMPOSE exec -T postgres-db pg_isready -q -h 127.0.0.1 2>/dev/null; do
   sleep 0.5
 done
+DBPORT="$($COMPOSE port postgres-db 5432 | head -n1 | sed 's/.*://')"
+export DBPORT
 
 psql() {
   $COMPOSE exec -T postgres-db psql -U myuser -d party_time -v ON_ERROR_STOP=1 "$@"

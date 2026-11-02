@@ -118,7 +118,13 @@ set +e
 # from party-time's root makes that lookup fail, the inventory silently
 # parses as empty, and every play gets skipped with no error — see the
 # PLAY RECAP check below for why that used to look like a false success.
-(cd ~/Documents/Workspace/homelab-workspace/repos/homelab/ansible && ANSIBLE_CONFIG=./ansible.cfg \
+#
+# homelab's .envrc sets REQUESTS_CA_BUNDLE so the inventory can verify the
+# Proxmox cluster's self-signed API cert. direnv only loads it in an
+# interactive shell, so source it here; without it the inventory fails with
+# CERTIFICATE_VERIFY_FAILED and parses as empty (caught below, but no deploy).
+(cd ~/Documents/Workspace/homelab-workspace/repos/homelab && source ./.envrc && \
+  cd ansible && ANSIBLE_CONFIG=./ansible.cfg \
   ansible-playbook "${ANSIBLE_ARGS[@]}") > "$LOG_FILE" 2>&1
 ANSIBLE_EXIT=$?
 set -e
