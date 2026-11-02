@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -30,6 +32,25 @@ describe('InvitePage', () => {
     expect(screen.getByText('Birthday Bash')).toBeInTheDocument()
     expect(screen.getByText('123 Party Lane')).toBeInTheDocument()
     expect(screen.getByText('Come celebrate!')).toBeInTheDocument()
+  })
+
+  it('keeps line breaks in the event description', async () => {
+    const description = 'Some options:\n- Earth\n- Arc Nova\n\nBYOB'
+    server.use(
+      http.get(`${BASE}/invite/:id`, () => HttpResponse.json({ ...defaultInvite, event_description: description }))
+    )
+    const style = document.createElement('style')
+    // Vitest blanks imported CSS, so read the real stylesheet from disk.
+    style.textContent = readFileSync(resolve(process.cwd(), 'src/App.css'), 'utf8')
+    document.head.appendChild(style)
+    try {
+      renderInvite()
+      await screen.findByText('Hi Alex! 👋')
+      const el = screen.getByText((_, node) => node.className === 'detail-text' && node.textContent === description)
+      expect(getComputedStyle(el).whiteSpace).toBe('pre-wrap')
+    } finally {
+      style.remove()
+    }
   })
 
   it('shows an error card when the invite is not found', async () => {

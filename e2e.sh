@@ -33,7 +33,16 @@ pass() {
   echo "PASS: $*"
 }
 
+# A backend already on :8080 would answer in place of this checkout's, and the
+# run would pass without testing this code.
+if (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null; then
+  echo "Port 8080 is already in use, so e2e can't test this checkout's backend. Stop it first:" >&2
+  echo "  lsof -nP -iTCP:8080 -sTCP:LISTEN" >&2
+  exit 1
+fi
+
 BACKEND_PID=""
+BACKEND_BIN="$(mktemp -d)/party-time-backend"
 cleanup() {
   echo ""
   echo "Tearing down..."
@@ -43,6 +52,7 @@ cleanup() {
   fi
   $EDGE down 2>/dev/null || true
   $COMPOSE down -v --remove-orphans 2>/dev/null || true
+  rm -rf "$(dirname "$BACKEND_BIN")"
 }
 trap cleanup EXIT
 
@@ -83,7 +93,10 @@ $COMPOSE exec -T -e PGOPTIONS="--search_path=party_time" postgres-db \
 
 # ── 3. Backend, running on the host like run_local.sh's does ──────────────
 echo "Starting backend..."
-(cd "$ROOT/public_backend" && DBHOST=127.0.0.1 ADMIN_ENABLED=true INVITEE_BASE_URL=http://localhost:8090 go run . >/tmp/party-time-e2e-backend.log 2>&1) &
+# Built and exec'd, not `go run`: killing `go run` leaves its compiled child
+# holding :8080 after the script exits.
+(cd "$ROOT/public_backend" && go build -o "$BACKEND_BIN" .)
+(cd "$ROOT/public_backend" && DBHOST=127.0.0.1 ADMIN_ENABLED=true INVITEE_BASE_URL=http://localhost:8090 exec "$BACKEND_BIN" >/tmp/party-time-e2e-backend.log 2>&1) &
 BACKEND_PID=$!
 
 echo "Waiting for backend on :8080..."

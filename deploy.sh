@@ -221,12 +221,13 @@ smoke_check "public site" "$PARTY_TIME_PUBLIC_URL/"
 # with any (invite_url is only emitted per-invitee, nested under the event).
 echo "=== Verifying invite base URL ==="
 EVENTS_JSON="$(curl -s --max-time 10 "$PARTY_TIME_ADMIN_URL/admin/events")"
-FIRST_EVENT_ID="$(printf '%s' "$EVENTS_JSON" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)"
+# `|| true`: with pipefail, a grep that matches nothing would end the script here.
+FIRST_EVENT_ID="$(printf '%s' "$EVENTS_JSON" | { grep -oE '"id":[0-9]+' || true; } | head -1 | cut -d: -f2)"
 if [ -z "$FIRST_EVENT_ID" ]; then
   echo "  (no events yet — skipping invite base check)"
 else
   EVENT_JSON="$(curl -s --max-time 10 "$PARTY_TIME_ADMIN_URL/admin/events/$FIRST_EVENT_ID")"
-  INVITE_URL="$(printf '%s' "$EVENT_JSON" | grep -o '"invite_url":"[^"]*"' | head -1 | cut -d'"' -f4)"
+  INVITE_URL="$(printf '%s' "$EVENT_JSON" | { grep -o '"invite_url":"[^"]*"' || true; } | head -1 | cut -d'"' -f4)"
   if [ -z "$INVITE_URL" ]; then
     echo "  (event has no invitees yet — skipping invite base check)"
   else
