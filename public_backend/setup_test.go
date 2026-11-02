@@ -183,6 +183,16 @@ func seedContactWithType(t *testing.T, firstName, lastName, phone, messageType s
 	return id
 }
 
+// countContacts is how the rejected-input tests prove nothing was stored.
+func countContacts(t *testing.T) int {
+	t.Helper()
+	var n int
+	if err := testDB.Get(&n, "SELECT COUNT(*) FROM contacts"); err != nil {
+		t.Fatalf("countContacts: %v", err)
+	}
+	return n
+}
+
 func seedEvent(t *testing.T, name string, date time.Time, status string) int {
 	t.Helper()
 	var id int

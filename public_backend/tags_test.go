@@ -64,7 +64,7 @@ func TestContactTags(t *testing.T) {
 	t.Run("create stores normalized, sorted tags", func(t *testing.T) {
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Tess",
-			"phone_number": "5553330002",
+			"phone_number": "5123330002",
 			"tags":         []string{"Hiking", " board  games", "hiking"},
 		})
 		assertStatus(t, w, 201)
@@ -79,9 +79,9 @@ func TestContactTags(t *testing.T) {
 	})
 
 	t.Run("update replaces tags, omitted tags are left alone", func(t *testing.T) {
-		id := seedContact(t, "Uma", "Up", "5553330003")
+		id := seedContact(t, "Uma", "Up", "+1 (512)333-0003")
 		body := map[string]any{
-			"first_name": "Uma", "last_name": "Up", "phone_number": "5553330003",
+			"first_name": "Uma", "last_name": "Up", "phone_number": "5123330003",
 			"tags": []string{"climbing", "wine"},
 		}
 		assertStatus(t, do(t, r, "PUT", fmt.Sprintf("/admin/contacts/%d", id), body), 200)
@@ -106,28 +106,29 @@ func TestContactTags(t *testing.T) {
 	t.Run("an over-long tag is a 400 and nothing is written", func(t *testing.T) {
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Long",
-			"phone_number": "5553330004",
+			"phone_number": "5123330004",
 			"tags":         []string{strings.Repeat("a", maxTagLength+1)},
 		})
 		assertStatus(t, w, 400)
+		if !strings.Contains(w.Body.String(), "tag") {
+			t.Errorf("400 is not about the tag: %s", w.Body.String())
+		}
 
 		var n int
-		testDB.QueryRow("SELECT count(*) FROM contacts WHERE phone_number = '5553330004'").Scan(&n)
+		testDB.QueryRow("SELECT count(*) FROM contacts WHERE phone_number = '+1 (512)333-0004'").Scan(&n)
 		if n != 0 {
 			t.Errorf("contact was created despite the 400")
 		}
 	})
 
 	t.Run("a failed create does not leave tags behind", func(t *testing.T) {
-		seedContact(t, "Dup", "Phone", "5553330005")
+		seedContact(t, "Dup", "Phone", "+1 (512)333-0005")
 		w := do(t, r, "POST", "/admin/contacts", map[string]any{
 			"first_name":   "Dup2",
-			"phone_number": "5553330005",
+			"phone_number": "512-333-0005",
 			"tags":         []string{"orphan"},
 		})
-		if w.Code < 400 {
-			t.Fatalf("duplicate phone should fail, got %d", w.Code)
-		}
+		assertStatus(t, w, 409)
 		var n int
 		testDB.QueryRow("SELECT count(*) FROM contact_tags WHERE tag = 'orphan'").Scan(&n)
 		if n != 0 {

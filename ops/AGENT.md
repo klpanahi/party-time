@@ -444,6 +444,18 @@ ssh ubuntu@docker.home.arpa 'docker logs -f --tail 100 party-time-public'
 ssh ubuntu@docker.home.arpa 'docker logs -f --tail 100 party-time-admin'
 ```
 
+### Normalize contact phone numbers (API backfill)
+
+```bash
+ops/normalize-phones.sh           # dry run: GET only — lists what would change and what won't parse
+ops/normalize-phones.sh --apply   # PUT each changed contact back unchanged; the backend normalizes it
+```
+
+Goes through `$PARTY_TIME_ADMIN_URL` only — no SQL. Needs a backend that
+normalizes (card #27) already deployed, or `--apply` is a no-op. Exits 1 and lists
+any number that won't parse or collides with another contact; fix those in the
+admin UI.
+
 ### Delete a test event (no API route exists)
 
 ```bash

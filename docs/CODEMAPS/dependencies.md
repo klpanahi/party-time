@@ -8,6 +8,7 @@ github.com/gin-gonic/gin v1.12.0       HTTP router + middleware
 github.com/gin-contrib/cors v1.7.7     CORS middleware
 github.com/jmoiron/sqlx v1.4.0        SQL query helper (db.Select, db.Get)
 github.com/lib/pq v1.12.1             PostgreSQL driver
+github.com/nyaruka/phonenumbers v1.8.1  Phone parsing/validation/formatting (port of Google libphonenumber)
 github.com/pressly/goose/v3 v3.27.3   Schema migration runner (embedded in binary via //go:embed)
 github.com/twilio/twilio-go v1.30.9   Twilio SMS API client
 ```
@@ -16,6 +17,7 @@ github.com/twilio/twilio-go v1.30.9   Twilio SMS API client
 ```
 react / react-dom ^19.2.6             UI framework
 react-router-dom ^7.17.0             Client-side routing
+libphonenumber-js ^1.13.15           Phone parsing/formatting (max metadata, matches the backend's validation)
 vite ^8.0.12                         Build tool / dev server
 vitest ^4.1.8                        Test runner
 @vitest/coverage-v8 ^4.1.8           Coverage reporter

@@ -61,7 +61,7 @@ describe('Contacts', () => {
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
 
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     await userEvent.type(screen.getByLabelText(/notes/i), 'Works nights')
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
@@ -89,7 +89,7 @@ describe('Contacts', () => {
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
 
     await userEvent.type(screen.getByLabelText(/first name/i), 'Dana')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550008888')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125558888')
     await userEvent.selectOptions(screen.getByLabelText(/message type/i), 'sms')
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
@@ -107,7 +107,7 @@ describe('Contacts', () => {
 
     expect(screen.getByRole('heading', { name: /edit contact/i })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Alice')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('+15550001111')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('+1 (512)555-1111')).toBeInTheDocument()
     expect(screen.getByLabelText(/message type/i)).toHaveValue('imessage')
     expect(screen.getByLabelText(/notes/i)).toHaveValue('')
   })
@@ -170,10 +170,105 @@ describe('Contacts', () => {
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
 
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
     await screen.findByText('validation failed')
+  })
+
+  it('shows phone numbers in one consistent format', async () => {
+    renderContacts()
+    await screen.findByText('Alice')
+    const aliceRow = screen.getByText('Alice').closest('tr')
+    expect(within(aliceRow).getByText('+1 (512)555-1111')).toBeInTheDocument()
+  })
+
+  it('normalizes a number typed in any format before sending it', async () => {
+    let posted
+    server.use(
+      http.post(`${BASE}/contacts`, async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({ id: 'new-contact-id' })
+      })
+    )
+    renderContacts()
+    await screen.findByText('Alice')
+    await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
+
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Erin')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '(512)350-0064')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await screen.findByText('Alice')
+    expect(posted).toMatchObject({ first_name: 'Erin', phone_number: '+1 (512)350-0064' })
+  })
+
+  it('shows an inline error and saves nothing when the number cannot be parsed', async () => {
+    let posted = false
+    server.use(
+      http.post(`${BASE}/contacts`, () => {
+        posted = true
+        return HttpResponse.json({ id: 'new-contact-id' })
+      })
+    )
+    renderContacts()
+    await screen.findByText('Alice')
+    await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
+
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Erin')
+    const phone = screen.getByLabelText(/phone number/i)
+    await userEvent.type(phone, '12345')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't read that as a phone number/i)
+    expect(phone).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('heading', { name: /new contact/i })).toBeInTheDocument()
+    expect(posted).toBe(false)
+
+    // Editing the field clears the error so it can be re-entered.
+    await userEvent.type(phone, '6')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(phone).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('rejects an unparseable number on edit without sending a PUT', async () => {
+    let put = false
+    server.use(
+      http.put(`${BASE}/contacts/:id`, () => {
+        put = true
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    renderContacts()
+    await screen.findByText('Alice')
+    const aliceRow = screen.getByText('Alice').closest('tr')
+    await userEvent.click(within(aliceRow).getByRole('button', { name: /edit/i }))
+
+    const phone = screen.getByLabelText(/phone number/i)
+    await userEvent.clear(phone)
+    await userEvent.type(phone, 'not a number')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/please re-enter it/i)
+    expect(put).toBe(false)
+  })
+
+  it('sends the edited contact\'s existing number back in canonical form', async () => {
+    let put
+    server.use(
+      http.put(`${BASE}/contacts/:id`, async ({ request }) => {
+        put = await request.json()
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    renderContacts()
+    await screen.findByText('Alice')
+    const aliceRow = screen.getByText('Alice').closest('tr')
+    await userEvent.click(within(aliceRow).getByRole('button', { name: /edit/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await screen.findByText('Alice')
+    expect(put).toMatchObject({ phone_number: '+1 (512)555-1111' })
   })
 })
 
@@ -181,7 +276,7 @@ describe('Contacts interest tags', () => {
   it('shows each contact\'s tags and a dash for none', async () => {
     server.use(http.get(`${BASE}/contacts`, () => HttpResponse.json([
       ...defaultContacts,
-      { id: 'contact-ghi', first_name: 'Cara', last_name: 'Nope', phone_number: '+15550003333', message_type: 'imessage', notes: '', tags: [] },
+      { id: 'contact-ghi', first_name: 'Cara', last_name: 'Nope', phone_number: '+15125553333', message_type: 'imessage', notes: '', tags: [] },
     ])))
     renderContacts()
     await screen.findByText('Alice')
@@ -258,7 +353,7 @@ describe('Contacts interest tags', () => {
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
 
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     const tagInput = screen.getByLabelText(/add interest/i)
     await userEvent.type(tagInput, '  Rock  Climbing {Enter}')
     await userEvent.type(tagInput, 'Wine,')
@@ -282,7 +377,7 @@ describe('Contacts interest tags', () => {
     await screen.findByText('Alice')
     await userEvent.click(screen.getByRole('button', { name: /add contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     const tagInput = screen.getByLabelText(/add interest/i)
     await userEvent.click(tagInput)
     await userEvent.paste('Hiking, wine,, Jazz')

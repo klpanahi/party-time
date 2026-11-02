@@ -5,6 +5,8 @@ import (
 	"log"
 	"strconv"
 	"time"
+
+	"example/web-service-gin/phone"
 )
 
 // textBatchSize is how many pending texts the worker claims per poll.
@@ -84,7 +86,8 @@ func (env *Env) processPendingTexts(ctx context.Context, rateDelay time.Duration
 		default:
 		}
 
-		sid, err := env.sender.Send(ct.Phone, ct.Content)
+		// Contacts store a display format; Twilio needs E.164.
+		sid, err := env.sender.Send(phone.E164(ct.Phone), ct.Content)
 		if err != nil {
 			// Fail fast: one attempt, surface the error for manual resend.
 			if _, uerr := env.db.Exec(

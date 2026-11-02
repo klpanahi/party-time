@@ -21,6 +21,7 @@ GET  /event/:id            → getEventByID          → SELECT * FROM events
 GET  /admin/contacts           → adminGetContacts      → contacts LEFT JOIN contact_tags, tags[] aggregated per contact
 POST /admin/contacts           → adminCreateContact    → INSERT contacts + contact_tags (one tx)
 PUT  /admin/contacts/:id       → adminUpdateContact    → UPDATE contacts; replace contact_tags only when tags is sent
+    (all contact writes store phone.Normalize(phone_number) — 400 if unparseable, 409 if another contact has it)
 
 GET  /admin/events             → adminGetEvents        → events + RSVP count aggregation
 POST /admin/events             → adminCreateEvent      → INSERT events
@@ -56,6 +57,9 @@ public_backend/worker.go          background text worker: poll, claim, send, sta
 public_backend/sms.go             SMSSender interface + twilioSender + newTwilioSender
 public_backend/structs.go         all request/response/DB structs (139 lines)
 public_backend/helpers.go         getenv, loaddbconfig, parseCentralTime
+public_backend/phone/phone.go     phone.Normalize: any typed format -> "+1 (512)350-0064" (US default); phone.E164 for senders
+public_backend/phone.go           isUniqueViolation + errDuplicatePhone (contacts_unique -> 409)
+public_backend/cmd/normalize-phones  API-only backfill of pre-normalization numbers (wrapper: ops/normalize-phones.sh)
 public_backend/handlers_test.go   integration tests: TestHealthz, TestContacts, TestEvents (incl. update), TestAddInvitee,
                                    TestLaunchEvent, TestInviteeOrdering, TestSendMessage, TestGetTexts,
                                    TestGetInvite, TestGetInvites, TestGetEventByID, TestUpdateInvite, TestAdminEdgeCases

@@ -58,7 +58,7 @@ describe('EventDetails', () => {
   it('invitees tab is shown by default and renders the invitee table', async () => {
     renderDetails()
     await screen.findByText('Alice Smith')
-    expect(screen.getByText('+15550001111')).toBeInTheDocument()
+    expect(screen.getByText('+1 (512)555-1111')).toBeInTheDocument()
   })
 
   it('triggers auto-save 800ms after a field change', async () => {
@@ -747,7 +747,7 @@ describe('AddInviteeModal', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     await userEvent.click(screen.getByRole('button', { name: /add & invite/i }))
 
     expect(screen.queryByRole('heading', { name: /add invitee/i })).not.toBeInTheDocument()
@@ -774,6 +774,82 @@ describe('AddInviteeModal', () => {
     await screen.findByText('invite failed')
   })
 
+  it('finds a contact by phone number typed in any format', async () => {
+    render(
+      <MemoryRouter initialEntries={[`/event/${EVENT_ID}`]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventDetails />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    await screen.findByText('Alice Smith')
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await screen.findByRole('checkbox', { name: /bob jones/i })
+
+    await userEvent.type(screen.getByPlaceholderText(/search by name or phone/i), '(512) 555-2222')
+    expect(screen.getByRole('checkbox', { name: /bob jones/i }).closest('label')).toHaveTextContent('+1 (512)555-2222')
+  })
+
+  it('New Contact normalizes the typed number before sending it', async () => {
+    let posted
+    server.use(
+      http.post(`${BASE}/events/:id/invites`, async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({ id: 'inv-new' }, { status: 201 })
+      })
+    )
+    render(
+      <MemoryRouter initialEntries={[`/event/${EVENT_ID}`]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventDetails />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    await screen.findByText('Alice Smith')
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await screen.findByRole('checkbox', { name: /bob jones/i })
+
+    await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '512.350.0064')
+    await userEvent.click(screen.getByRole('button', { name: /add & invite/i }))
+
+    expect(posted).toMatchObject({ first_name: 'Carol', phone_number: '+1 (512)350-0064' })
+  })
+
+  it('New Contact shows an inline error and sends nothing for an unparseable number', async () => {
+    let posted = false
+    server.use(
+      http.post(`${BASE}/events/:id/invites`, () => {
+        posted = true
+        return HttpResponse.json({ id: 'inv-new' }, { status: 201 })
+      })
+    )
+    render(
+      <MemoryRouter initialEntries={[`/event/${EVENT_ID}`]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventDetails />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    await screen.findByText('Alice Smith')
+    await userEvent.click(screen.getByRole('button', { name: /add invitee/i }))
+    await screen.findByRole('checkbox', { name: /bob jones/i })
+
+    await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
+    const phone = screen.getByLabelText(/phone number/i)
+    await userEvent.type(phone, '555-1234')
+    await userEvent.click(screen.getByRole('button', { name: /add & invite/i }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't read that as a phone number/i)
+    expect(screen.getByRole('heading', { name: /add invitee/i })).toBeInTheDocument()
+    expect(posted).toBe(false)
+
+    await userEvent.type(phone, '5')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('shows error banner when New Contact form submit fails', async () => {
     server.use(
       http.post(`${BASE}/events/:id/invites`, () =>
@@ -794,7 +870,7 @@ describe('AddInviteeModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /new contact/i }))
     await userEvent.type(screen.getByLabelText(/first name/i), 'Carol')
     await userEvent.type(screen.getByLabelText(/last name/i), 'White')
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(screen.getByLabelText(/phone number/i), '+15125559999')
     await userEvent.click(screen.getByRole('button', { name: /add & invite/i }))
     await screen.findByText('new contact failed')
   })
@@ -986,12 +1062,12 @@ describe('AddInviteeModal on a launched event', () => {
     const modal = await openModal()
     await userEvent.click(modal.getByRole('button', { name: /new contact/i }))
     await userEvent.type(modal.getByLabelText(/first name/i), 'Carol')
-    await userEvent.type(modal.getByLabelText(/phone number/i), '+15550009999')
+    await userEvent.type(modal.getByLabelText(/phone number/i), '+15125559999')
     await userEvent.click(modal.getByRole('button', { name: /next: review invite/i }))
     await userEvent.click(modal.getByRole('button', { name: /send invite/i }))
 
     expect(captured.body).toEqual({
-      first_name: 'Carol', last_name: '', phone_number: '+15550009999',
+      first_name: 'Carol', last_name: '', phone_number: '+1 (512)555-9999',
       message: 'Hi {name}, join us!', include_link: true,
     })
   })
@@ -1024,10 +1100,10 @@ describe('AddInviteeModal on a launched event', () => {
 
 describe('AddInviteeModal multi-select and tag filter', () => {
   const contacts = [
-    { id: 'contact-abc', first_name: 'Alice', last_name: 'Smith', phone_number: '+15550001111', tags: ['hiking'] },
-    { id: 'c-bob', first_name: 'Bob', last_name: 'Jones', phone_number: '+15550002222', tags: ['board games', 'hiking'] },
-    { id: 'c-cara', first_name: 'Cara', last_name: 'Diaz', phone_number: '+15550003333', tags: ['wine'] },
-    { id: 'c-dan', first_name: 'Dan', last_name: 'Wu', phone_number: '+15550004444', tags: [] },
+    { id: 'contact-abc', first_name: 'Alice', last_name: 'Smith', phone_number: '+15125551111', tags: ['hiking'] },
+    { id: 'c-bob', first_name: 'Bob', last_name: 'Jones', phone_number: '+15125552222', tags: ['board games', 'hiking'] },
+    { id: 'c-cara', first_name: 'Cara', last_name: 'Diaz', phone_number: '+15125553333', tags: ['wine'] },
+    { id: 'c-dan', first_name: 'Dan', last_name: 'Wu', phone_number: '+15125554444', tags: [] },
   ]
 
   function setup(eventOverride) {
