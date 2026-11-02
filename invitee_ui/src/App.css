@@ -74,6 +74,9 @@ body {
   font-size: 15px;
   color: #374151;
   line-height: 1.5;
+  /* Keep the line breaks the host typed in a description. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .divider {
