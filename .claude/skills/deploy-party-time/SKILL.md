@@ -23,13 +23,17 @@ run under conditions that would make "success" a lie.
   to `CREATE TABLE` on tables that already exist and fail. Check whether it's
   been done before running a normal deploy after this change lands.
 
-Hosts (Ansible reaches them by IP via the Proxmox dynamic inventory):
+Hosts (Ansible finds them through the Proxmox dynamic inventory; people and
+scripts use the `home.arpa` names):
 
-| Host | IP | Role |
+| Host | Name | Role |
 |---|---|---|
-| nginx-cloudflared | 192.168.68.77 | public edge, invitee UI |
-| docker | 192.168.68.78 | backend + Postgres |
-| nginx-internal | 192.168.68.85 | admin UI |
+| nginx-cloudflared | `nginx-cloudflared.home.arpa` (LXC, `root@`) | public edge, invitee UI |
+| docker | `docker.home.arpa` (VM, `ubuntu@`) | backend + Postgres |
+| nginx-internal | `nginx-internal.home.arpa` (LXC, `root@`) | admin UI |
+
+`deploy.sh` sources homelab's `.envrc` itself (the Proxmox CA bundle), so it
+works from any shell, not only one where direnv is active.
 
 ## The command
 
