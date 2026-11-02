@@ -64,6 +64,7 @@ export const defaultContacts = [
     phone_number: '+15550001111',
     message_type: 'imessage',
     notes: '',
+    tags: ['hiking'],
   },
   // Bob covers the other channel and a non-empty notes field.
   {
@@ -73,6 +74,7 @@ export const defaultContacts = [
     phone_number: '+15550002222',
     message_type: 'sms',
     notes: 'Android — iMessage never lands',
+    tags: ['board games', 'hiking'],
   },
 ]
 
@@ -116,6 +118,14 @@ export const handlers = [
   http.post(`${BASE}/events/:id/messages`, () => HttpResponse.json({ ok: true })),
 
   http.post(`${BASE}/events/:id/invites`, () => HttpResponse.json({ ok: true })),
+
+  http.post(`${BASE}/events/:id/invites/bulk`, async ({ request }) => {
+    const { contact_ids } = await request.json()
+    return HttpResponse.json({
+      added: contact_ids.map((id) => ({ invite_id: `inv-${id}`, contact_id: id })),
+      skipped: 0,
+    }, { status: 201 })
+  }),
 
   http.get(`${BASE}/contacts`, () => HttpResponse.json(defaultContacts)),
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getContacts, createContact, updateContact } from '../api'
+import { TagChips, TagFilter, TagInput } from '../tags'
+import { allTagsOf, matchesTags } from '../tagUtils'
 
 // How each contact gets texted. The sender script reads message_type straight
 // off the contact instead of trying iMessage and falling back, so this is the
@@ -11,6 +13,7 @@ export default function Contacts() {
   const [error, setError] = useState(null)
   const [editing, setEditing] = useState(null)   // Contact object being edited
   const [showAdd, setShowAdd] = useState(false)
+  const [tagFilter, setTagFilter] = useState([])
 
   useEffect(() => {
     reload()
@@ -19,6 +22,9 @@ export default function Contacts() {
   function reload() {
     getContacts().then(setContacts).catch((e) => setError(e.message))
   }
+
+  const allTags = allTagsOf(contacts)
+  const shown = contacts.filter((c) => matchesTags(c, tagFilter))
 
   return (
     <div className="page">
@@ -32,6 +38,7 @@ export default function Contacts() {
       {showAdd && (
         <ContactModal
           title="New Contact"
+          allTags={allTags}
           onSave={async (form) => {
             await createContact(form)
             reload()
@@ -45,6 +52,7 @@ export default function Contacts() {
         <ContactModal
           title="Edit Contact"
           initial={editing}
+          allTags={allTags}
           onSave={async (form) => {
             await updateContact(editing.id, form)
             reload()
@@ -54,8 +62,12 @@ export default function Contacts() {
         />
       )}
 
+      <TagFilter allTags={allTags} selected={tagFilter} onChange={setTagFilter} />
+
       {contacts.length === 0
         ? <p className="empty">No contacts yet.</p>
+        : shown.length === 0
+        ? <p className="empty">No contacts have those interests.</p>
         : (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <table className="table">
@@ -65,17 +77,19 @@ export default function Contacts() {
                   <th>Last Name</th>
                   <th>Phone</th>
                   <th>Message Type</th>
+                  <th>Interests</th>
                   <th>Notes</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {contacts.map((c) => (
+                {shown.map((c) => (
                   <tr key={c.id}>
                     <td>{c.first_name}</td>
                     <td>{c.last_name || <span className="text-muted">—</span>}</td>
                     <td className="mono">{c.phone_number}</td>
                     <td>{MESSAGE_TYPE_LABELS[c.message_type] ?? c.message_type}</td>
+                    <td>{c.tags?.length ? <TagChips tags={c.tags} /> : <span className="text-muted">—</span>}</td>
                     <td className="notes-cell">{c.notes || <span className="text-muted">—</span>}</td>
                     <td className="action-cell">
                       <button className="btn-ghost btn-sm" onClick={() => setEditing(c)}>Edit</button>
@@ -90,13 +104,14 @@ export default function Contacts() {
   )
 }
 
-function ContactModal({ title, initial = {}, onSave, onClose }) {
+function ContactModal({ title, initial = {}, allTags = [], onSave, onClose }) {
   const [form, setForm] = useState({
     first_name: initial.first_name || '',
     last_name: initial.last_name || '',
     phone_number: initial.phone_number || '',
     message_type: initial.message_type || 'imessage',
     notes: initial.notes || '',
+    tags: initial.tags || [],
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -139,6 +154,11 @@ function ContactModal({ title, initial = {}, onSave, onClose }) {
               ))}
             </select>
           </label>
+          <div className="form-field">
+            <span>Interests</span>
+            <TagInput value={form.tags} suggestions={allTags}
+              onChange={(tags) => setForm({ ...form, tags })} />
+          </div>
           <label>Notes
             <textarea rows={3} value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })} />

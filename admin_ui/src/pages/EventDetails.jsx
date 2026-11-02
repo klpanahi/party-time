@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getEvent, updateEvent, addInvitee, sendMessage, getContacts, launchEvent, getTexts, resendText, setTextStatus, cancelEvent, deleteEvent } from '../api'
+import { getEvent, updateEvent, addInvitee, addInvitees, sendMessage, getContacts, launchEvent, getTexts, resendText, setTextStatus, cancelEvent, deleteEvent } from '../api'
 import { toDatetimeLocal, formatDateShort, formatDateLong } from '../dateUtils'
+import { TagChips, TagFilter } from '../tags'
+import { allTagsOf, matchesTags } from '../tagUtils'
 
 const STATUS_LABELS = {
   draft: 'Draft',
@@ -660,6 +662,9 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
   const [newForm, setNewForm] = useState({ first_name: '', last_name: '', phone_number: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  // Contacts ticked in the From Contacts list, added together in one request.
+  const [selected, setSelected] = useState(() => new Set())
+  const [tagFilter, setTagFilter] = useState([])
   // On a launched event, adding someone texts them straight away, so the invite
   // is reviewed first: picking a contact or filling the form leads to a compose
   // step, prefilled with the message the event was launched with.
@@ -672,8 +677,10 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
     getContacts().then(setContacts).catch((e) => setError(e.message))
   }, [])
 
+  const allTags = allTagsOf(contacts)
   const filtered = contacts.filter((c) => {
     if (alreadyInvited.includes(c.id)) return false
+    if (!matchesTags(c, tagFilter)) return false
     const q = search.toLowerCase()
     return (
       c.first_name.toLowerCase().includes(q) ||
@@ -682,10 +689,31 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
     )
   })
 
-  async function submit(data) {
+  const allShownSelected = filtered.length > 0 && filtered.every((c) => selected.has(c.id))
+
+  function toggleContact(id) {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
+  }
+
+  // Select-all applies to the contacts currently shown (after search and tag
+  // filters); anyone ticked earlier under a different filter stays ticked.
+  function toggleAllShown() {
+    const next = new Set(selected)
+    for (const c of filtered) {
+      if (allShownSelected) next.delete(c.id)
+      else next.add(c.id)
+    }
+    setSelected(next)
+  }
+
+  async function submit(data, bulk) {
     setSubmitting(true)
     try {
-      await addInvitee(eventId, data)
+      if (bulk) await addInvitees(eventId, data)
+      else await addInvitee(eventId, data)
       onAdded()
     } catch (e) {
       setError(e.message)
@@ -694,17 +722,25 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
     }
   }
 
-  function proceed(data, label) {
+  function proceed(data, label, bulk = false) {
     if (launched) {
-      setPending({ data, label })
+      setPending({ data, label, bulk })
       setMode('compose')
     } else {
-      submit(data)
+      submit(data, bulk)
     }
   }
 
-  function selectContact(contact) {
-    proceed({ contact_id: contact.id }, `${contact.first_name} ${contact.last_name}`.trim())
+  const addLabel = selected.size === 0
+    ? 'Add Invitees'
+    : `Add ${selected.size} ${selected.size === 1 ? 'Invitee' : 'Invitees'}`
+
+  function handleAddSelected() {
+    const picked = contacts.filter((c) => selected.has(c.id))
+    const label = picked.length === 1
+      ? `${picked[0].first_name} ${picked[0].last_name}`.trim()
+      : `${picked.length} people`
+    proceed({ contact_ids: picked.map((c) => c.id) }, label, true)
   }
 
   function handleCreateNew(ev) {
@@ -713,14 +749,14 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
   }
 
   function handleSendInvite() {
-    submit({ ...pending.data, message: content, include_link: includeLink })
+    submit({ ...pending.data, message: content, include_link: includeLink }, pending.bulk)
   }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header-row">
-          <h2>Add Invitee</h2>
+          <h2>Add Invitees</h2>
           {mode !== 'compose' && (
             <div className="tab-toggle">
               <button className={mode === 'pick' ? 'tab active' : 'tab'} onClick={() => setMode('pick')}>
@@ -756,7 +792,11 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
                 onClick={handleSendInvite}
                 disabled={submitting || !content.trim()}
               >
-                {submitting ? 'Sending…' : 'Send Invite'}
+                {submitting
+                  ? 'Sending…'
+                  : pending.bulk && pending.data.contact_ids.length > 1
+                    ? `Send ${pending.data.contact_ids.length} Invites`
+                    : 'Send Invite'}
               </button>
             </div>
           </div>
@@ -771,6 +811,16 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
               onChange={(e) => setSearch(e.target.value)}
               autoFocus
             />
+            <TagFilter allTags={allTags} selected={tagFilter} onChange={setTagFilter} />
+            {filtered.length > 0 && (
+              <div className="select-all-row">
+                <label>
+                  <input type="checkbox" checked={allShownSelected} onChange={toggleAllShown} />
+                  Select all {filtered.length} shown
+                </label>
+                {selected.size > 0 && <span>{selected.size} selected</span>}
+              </div>
+            )}
             <div className="contact-list">
               {contacts.length === 0 && <p className="empty">Loading contacts…</p>}
               {contacts.length > 0 && filtered.length === 0 && (
@@ -780,19 +830,32 @@ function AddInviteeModal({ eventId, event, alreadyInvited, onAdded, onClose }) {
                 </p>
               )}
               {filtered.map((c) => (
-                <button
-                  key={c.id}
-                  className="contact-row"
-                  onClick={() => selectContact(c)}
-                  disabled={submitting}
-                >
+                <label key={c.id} className={selected.has(c.id) ? 'contact-row selected' : 'contact-row'}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(c.id)}
+                    onChange={() => toggleContact(c.id)}
+                    disabled={submitting}
+                  />
                   <span className="contact-name">{c.first_name} {c.last_name}</span>
+                  <TagChips tags={c.tags} />
                   <span className="contact-phone mono">{c.phone_number}</span>
-                </button>
+                </label>
               ))}
             </div>
             <div className="form-actions">
               <button className="btn-ghost" onClick={onClose}>Cancel</button>
+              <button
+                className="btn-primary"
+                onClick={handleAddSelected}
+                disabled={submitting || selected.size === 0}
+              >
+                {submitting
+                  ? 'Adding…'
+                  : launched
+                    ? 'Next: Review Invite'
+                    : addLabel}
+              </button>
             </div>
           </>
         )}

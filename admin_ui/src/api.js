@@ -23,6 +23,8 @@ export const updateEvent = (id, data) => request('PUT', `/events/${id}`, data)
 export const cancelEvent = (id, content) => request('POST', `/events/${id}/cancel`, { content })
 export const deleteEvent = (id) => request('DELETE', `/events/${id}`)
 export const addInvitee = (eventId, data) => request('POST', `/events/${eventId}/invites`, data)
+// data: { contact_ids, message?, include_link? } — already-invited contacts are skipped.
+export const addInvitees = (eventId, data) => request('POST', `/events/${eventId}/invites/bulk`, data)
 export const sendMessage = (eventId, content, includeLink = true) =>
   request('POST', `/events/${eventId}/messages`, { content, include_link: includeLink })
 // message: { content, include_link } — omit to launch with the backend's default invite.
