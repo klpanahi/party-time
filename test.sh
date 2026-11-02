@@ -8,11 +8,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Ensure postgres is stopped on exit (success or failure).
+# A compose project of its own per checkout (hash of the checkout path), on a
+# free host port, so test runs from the main checkout and from worktrees run
+# side by side without touching each other or run_local.sh's dev database.
+PROJECT="party-time-test-$(printf '%s' "$ROOT" | shasum | cut -c1-8)"
+COMPOSE=(docker compose -p "$PROJECT" -f "$ROOT/docker-compose.yml")
+
+# Remove the test database, its network and its volume on exit (success or
+# failure), so nothing is left behind.
 cleanup() {
   echo ""
-  echo "Stopping test database..."
-  docker compose -f "$ROOT/docker-compose.yml" stop postgres-db 2>/dev/null || true
+  echo "Removing test database..."
+  "${COMPOSE[@]}" down -v --remove-orphans 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -21,11 +28,15 @@ echo ""
 
 # ── 1. Test database ─────────────────────────────────────────────────────────
 echo "[1/4] Starting test database..."
-docker compose -f "$ROOT/docker-compose.yml" up -d postgres-db
-until docker compose -f "$ROOT/docker-compose.yml" exec -T postgres-db pg_isready -q 2>/dev/null; do
+PARTY_TIME_DB_PORT=0 "${COMPOSE[@]}" up -d postgres-db
+# -h 127.0.0.1: the image's first-boot init server listens on the socket only,
+# so a TCP check doesn't pass until the real server is up.
+until "${COMPOSE[@]}" exec -T postgres-db pg_isready -q -h 127.0.0.1 2>/dev/null; do
   sleep 0.5
 done
-echo "      Ready."
+DBPORT="$("${COMPOSE[@]}" port postgres-db 5432 | head -n1 | sed 's/.*://')"
+export DBPORT
+echo "      Ready on port $DBPORT."
 
 # ── 2. Backend tests ──────────────────────────────────────────────────────────
 echo "[2/4] Running backend tests..."
