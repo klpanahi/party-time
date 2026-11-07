@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"sync"
 	"testing"
@@ -508,4 +509,100 @@ func TestOverrideTextStatus(t *testing.T) {
 		w := do(t, r, "PUT", "/admin/texts/999999/status", map[string]string{"status": "pending"})
 		assertStatus(t, w, 404)
 	})
+}
+
+func TestCancelTexts(t *testing.T) {
+	cancel := func(t *testing.T, r http.Handler, eventID int, ids ...int64) cancelTextsResponse {
+		t.Helper()
+		w := do(t, r, "POST", "/admin/events/"+strconv.Itoa(eventID)+"/texts/cancel",
+			map[string]any{"text_ids": ids})
+		assertStatus(t, w, 200)
+		var resp cancelTextsResponse
+		mustDecode(t, w, &resp)
+		return resp
+	}
+
+	t.Run("cancels pending texts and senders no longer claim them", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		a := seedText(t, seedContact(t, "Ava", "Lind", "+15555550301"), eventID, "hi")
+		b := seedText(t, seedContact(t, "Ben", "Ruiz", "+15555550302"), eventID, "hi")
+		keep := seedText(t, seedContact(t, "Cy", "Oduya", "+15555550303"), eventID, "hi")
+
+		resp := cancel(t, r, eventID, a, b)
+		if len(resp.Canceled) != 2 || resp.Skipped != 0 {
+			t.Fatalf("resp = %+v, want 2 canceled, 0 skipped", resp)
+		}
+		for _, id := range []int64{a, b} {
+			if got := getText(t, id).Status; got != "canceled" {
+				t.Errorf("text %d status = %q, want canceled", id, got)
+			}
+		}
+
+		var claimed []PendingText
+		cw := do(t, r, "GET", "/admin/texts/pending", nil)
+		assertStatus(t, cw, 200)
+		mustDecode(t, cw, &claimed)
+		if len(claimed) != 1 || claimed[0].ID != int(keep) {
+			t.Fatalf("claimed = %+v, want only the uncanceled text %d", claimed, keep)
+		}
+	})
+
+	t.Run("skips texts that are not pending or belong to another event", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		otherEventID := seedEvent(t, "Other", futureDate(), "launched")
+		contactID := seedContact(t, "Dee", "Park", "+15555550304")
+		sending := seedText(t, contactID, eventID, "hi")
+		sent := seedText(t, contactID, eventID, "hi")
+		other := seedText(t, contactID, otherEventID, "hi")
+		if _, err := testDB.Exec(`UPDATE texts SET status = 'sending' WHERE id = $1`, sending); err != nil {
+			t.Fatalf("seed sending: %v", err)
+		}
+		if _, err := testDB.Exec(`UPDATE texts SET status = 'sent', sent_at = now() WHERE id = $1`, sent); err != nil {
+			t.Fatalf("seed sent: %v", err)
+		}
+
+		resp := cancel(t, r, eventID, sending, sent, other)
+		if len(resp.Canceled) != 0 || resp.Skipped != 3 {
+			t.Fatalf("resp = %+v, want 0 canceled, 3 skipped", resp)
+		}
+		for id, want := range map[int64]string{sending: "sending", sent: "sent", other: "pending"} {
+			if got := getText(t, id).Status; got != want {
+				t.Errorf("text %d status = %q, want %q", id, got, want)
+			}
+		}
+	})
+
+	t.Run("rejects an empty list", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+
+		w := do(t, r, "POST", "/admin/events/"+strconv.Itoa(eventID)+"/texts/cancel",
+			map[string]any{"text_ids": []int64{}})
+		assertStatus(t, w, 400)
+	})
+
+	t.Run("a canceled text can be requeued through the status override", func(t *testing.T) {
+		cleanDB(t)
+		r := newRouter()
+		eventID := seedEvent(t, "Party", futureDate(), "launched")
+		textID := seedText(t, seedContact(t, "Eli", "Moss", "+15555550305"), eventID, "hi")
+		cancel(t, r, eventID, textID)
+
+		w := do(t, r, "PUT", "/admin/texts/"+strconv.FormatInt(textID, 10)+"/status",
+			map[string]string{"status": "pending"})
+		assertStatus(t, w, 200)
+		if got := getText(t, textID).Status; got != "pending" {
+			t.Errorf("status = %q, want pending", got)
+		}
+	})
+}
+
+type cancelTextsResponse struct {
+	Canceled []int `json:"canceled"`
+	Skipped  int   `json:"skipped"`
 }

@@ -213,7 +213,7 @@ GET  /admin/events              POST /admin/events
 GET  /admin/events/:id          PUT  /admin/events/:id
 POST /admin/events/:id/invites  POST /admin/events/:id/messages
 GET  /admin/events/:id/texts    POST /admin/events/:id/launch
-POST /admin/texts/:id/resend
+POST /admin/texts/:id/resend   POST /admin/events/:id/texts/cancel
 ```
 
 There is **no delete route for any resource.** See hazard 11.

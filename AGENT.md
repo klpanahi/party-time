@@ -164,6 +164,7 @@ All three `TWILIO_*` vars must be set for SMS to send; if any is missing the tex
 | POST | `/admin/events/:id/messages` | Queue message as pending texts to non-declined invitees |
 | GET | `/admin/events/:id/texts` | List queued/sent texts for an event (incl. `status`, `error`, `provider_sid`, `sent_at`) |
 | POST | `/admin/events/:id/launch` | Transition event `draft → launched`, queue invite texts |
+| POST | `/admin/events/:id/texts/cancel` | Bulk-cancel `{text_ids}` on the event (`pending → canceled`); returns `canceled` ids and a `skipped` count for rows not pending |
 | POST | `/admin/texts/:id/resend` | Requeue a `failed` text (`failed → pending`); 409 if not failed |
 
 **Phone numbers** are stored and shown as `+1 (512)350-0064` (a non-+1 number
@@ -204,7 +205,7 @@ configured) drains the queue:
   Twilio accepted them.
 
 **Status lifecycle:** `pending → sending → sent` (or `→ failed`, then `→ pending` again via
-resend). Confirmation is at Twilio-acceptance level (queued/sent); carrier delivery receipts
+resend). An admin can cancel pending texts (`pending → canceled`), which no sender claims. Confirmation is at Twilio-acceptance level (queued/sent); carrier delivery receipts
 are not tracked. **Free-trial caveats:** ≤50 msgs/day and recipients must be verified in the
 Twilio console.
 

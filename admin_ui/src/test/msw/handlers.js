@@ -113,6 +113,11 @@ export const handlers = [
 
   http.post(`${BASE}/texts/:id/resend`, () => HttpResponse.json({ ok: true })),
 
+  http.post(`${BASE}/events/:id/texts/cancel`, async ({ request }) => {
+    const { text_ids } = await request.json()
+    return HttpResponse.json({ canceled: text_ids, skipped: 0 })
+  }),
+
   http.put(`${BASE}/texts/:id/status`, () => HttpResponse.json({ ok: true })),
 
   http.post(`${BASE}/events/:id/messages`, () => HttpResponse.json({ ok: true })),

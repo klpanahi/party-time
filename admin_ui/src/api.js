@@ -31,4 +31,5 @@ export const sendMessage = (eventId, content, includeLink = true) =>
 export const launchEvent = (eventId, message) => request('POST', `/events/${eventId}/launch`, message)
 export const getTexts = (eventId) => request('GET', `/events/${eventId}/texts`)
 export const resendText = (textId) => request('POST', `/texts/${textId}/resend`)
+export const cancelTexts = (eventId, textIds) => request('POST', `/events/${eventId}/texts/cancel`, { text_ids: textIds })
 export const setTextStatus = (textId, status) => request('PUT', `/texts/${textId}/status`, { status })

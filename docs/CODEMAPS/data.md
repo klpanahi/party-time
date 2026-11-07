@@ -50,7 +50,7 @@ texts
   contact_id    bigint → contacts.id
   message_id    bigint → messages.id  (NULL for invite texts)
   event_id      bigint → events.id
-  status        varchar DEFAULT 'pending'   -- 'pending'|'sending'|'sent'|'failed'
+  status        varchar DEFAULT 'pending'   -- 'pending'|'sending'|'sent'|'failed'|'canceled'
   content       TEXT NULL                  -- set for invite texts; NULL means use message.content
   provider_sid  varchar NULL               -- Twilio Message SID, or the channel when sent by imessage_sender.sh
   error         varchar NULL               -- failure reason when status='failed'

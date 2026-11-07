@@ -214,6 +214,11 @@ type PendingText struct {
 // TextStatusRequest is an external sender reporting the outcome of a text it
 // claimed. Status must be "sent" or "failed"; the other fields are optional
 // context recorded on the row.
+// CancelTextsRequest names the texts on one event to cancel in bulk.
+type CancelTextsRequest struct {
+	TextIDs []int `json:"text_ids" binding:"required"`
+}
+
 type TextStatusRequest struct {
 	Status      string `json:"status" binding:"required"`
 	Error       string `json:"error"`

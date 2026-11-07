@@ -795,6 +795,39 @@ func (env *Env) adminGetTexts(c *gin.Context) {
 	c.JSON(http.StatusOK, texts)
 }
 
+// adminCancelTexts cancels a batch of an event's texts before they go out.
+// Only 'pending' rows change: a 'sending' row is already held by a sender,
+// which would still deliver it, so it is skipped and counted instead. Neither
+// sender claims 'canceled' rows, and an admin can requeue one by setting it
+// back to 'pending' (adminOverrideTextStatus).
+func (env *Env) adminCancelTexts(c *gin.Context) {
+	eventID := c.Param("id")
+
+	var req CancelTextsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.TextIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "text_ids must not be empty"})
+		return
+	}
+
+	canceled := []int{}
+	if err := env.db.Select(&canceled,
+		`UPDATE texts SET status = 'canceled', error = NULL
+		 WHERE event_id = $1 AND id = ANY($2) AND status = 'pending'
+		 RETURNING id`,
+		eventID, pq.Array(req.TextIDs),
+	); err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"canceled": canceled, "skipped": len(req.TextIDs) - len(canceled)})
+}
+
 // adminResendText requeues a failed text so the background worker retries it.
 func (env *Env) adminResendText(c *gin.Context) {
 	id := c.Param("id")
@@ -954,13 +987,15 @@ func (env *Env) adminReportTextStatus(c *gin.Context) {
 }
 
 // validTextStatuses is every state a texts row may sit in. The normal lifecycle
-// is pending -> sending -> sent | failed; an admin override can jump to any of
-// them (see adminOverrideTextStatus).
+// is pending -> sending -> sent | failed, or pending -> canceled when an admin
+// stops it (adminCancelTexts); an admin override can jump to any of them (see
+// adminOverrideTextStatus).
 var validTextStatuses = map[string]bool{
-	"pending": true,
-	"sending": true,
-	"sent":    true,
-	"failed":  true,
+	"pending":  true,
+	"sending":  true,
+	"sent":     true,
+	"failed":   true,
+	"canceled": true,
 }
 
 // adminOverrideTextStatus lets an admin force a text into any status, from any
@@ -984,7 +1019,7 @@ func (env *Env) adminOverrideTextStatus(c *gin.Context) {
 	}
 
 	if !validTextStatuses[req.Status] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be 'pending', 'sending', 'sent' or 'failed'"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be 'pending', 'sending', 'sent', 'failed' or 'canceled'"})
 		return
 	}
 
@@ -1010,6 +1045,10 @@ func (env *Env) adminOverrideTextStatus(c *gin.Context) {
 		result, err = env.db.Exec(
 			`UPDATE texts SET status = 'failed', error = $2 WHERE id = $1`,
 			id, nullIfEmpty(req.Error),
+		)
+	case "canceled":
+		result, err = env.db.Exec(
+			`UPDATE texts SET status = 'canceled', error = NULL WHERE id = $1`, id,
 		)
 	}
 

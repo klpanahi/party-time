@@ -32,6 +32,7 @@ POST /admin/events/:id/invites/bulk → adminBulkAddInvitees → INSERT invites 
 POST /admin/events/:id/messages → adminSendMessage     → INSERT message + INSERT texts for non-declined invitees ({name}, optional link)
 GET  /admin/events/:id/texts   → adminGetTexts         → texts JOIN contacts LEFT JOIN messages (status, error, provider_sid, sent_at)
 POST /admin/events/:id/launch  → adminLaunchEvent      → INSERT invite texts for all (optional content/include_link), UPDATE status='launched' + invite_message
+POST /admin/events/:id/texts/cancel → adminCancelTexts → UPDATE texts pending→canceled for {text_ids} on the event; returns canceled ids + skipped count
 POST /admin/texts/:id/resend   → adminResendText       → UPDATE texts failed→pending (409 if not failed)
 ```
 
@@ -46,7 +47,7 @@ worker.go  runTextWorker(ctx)        poll loop (TEXT_WORKER_INTERVAL); startup s
 sms.go     SMSSender interface        Send(to, body) → sid; twilioSender wraps twilio-go;
                                       newTwilioSender() returns ok=false when creds absent
 ```
-Status lifecycle: `pending → sending → sent | failed`. Fail-fast (one attempt); worker only
+Status lifecycle: `pending → sending → sent | failed`, or `pending → canceled` (admin bulk cancel). Fail-fast (one attempt); worker only
 starts when `TWILIO_*` is configured, else texts stay pending.
 
 ## Key Files
