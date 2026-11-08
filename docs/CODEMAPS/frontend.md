@@ -15,7 +15,7 @@ App.jsx
 │     │   "Notify invitees of changes" quick-compose (launched events only)
 │     │   Send a Message form (non-declined invitees; "Include invite link" box, default on)
 │     ├── LaunchModal: editable invite draft ({name} placeholder) + include-link box
-│     └── Messages tab: texts log with expandable content rows
+│     └── Messages tab: texts log with expandable content rows; select pending rows to bulk-cancel
 └── /contacts → Contacts.jsx  — contact list with interest-tag filter, create/edit contact modal (tag editor)
 ```
 

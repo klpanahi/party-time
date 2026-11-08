@@ -148,6 +148,108 @@ describe('EventDetails', () => {
     expect(screen.queryByRole('button', { name: /resend/i })).not.toBeInTheDocument()
   })
 
+  describe('bulk canceling pending messages', () => {
+    const queued = [
+      { ...defaultTexts[0], id: 1, first_name: 'Alice', last_name: 'Smith', status: 'pending' },
+      { ...defaultTexts[0], id: 2, first_name: 'Bob', last_name: 'Jones', status: 'pending' },
+      { ...defaultTexts[0], id: 3, first_name: 'Cara', last_name: 'Diaz', status: 'sent' },
+    ]
+
+    async function openMessages() {
+      renderDetails()
+      await screen.findByDisplayValue('Summer Party')
+      await userEvent.click(screen.getByRole('button', { name: /messages/i }))
+      await screen.findByText('Alice Smith')
+    }
+
+    afterEach(() => vi.restoreAllMocks())
+
+    it('only pending rows can be selected, and the button counts the selection', async () => {
+      server.use(http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(queued)))
+      await openMessages()
+
+      expect(screen.getByLabelText('Select message to Alice Smith')).toBeInTheDocument()
+      expect(screen.getByLabelText('Select message to Bob Jones')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Select message to Cara Diaz')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Cancel 0 selected' })).toBeDisabled()
+
+      await userEvent.click(screen.getByLabelText('Select all pending (2)'))
+      expect(screen.getByRole('button', { name: 'Cancel 2 selected' })).toBeEnabled()
+
+      await userEvent.click(screen.getByLabelText('Select all pending (2)'))
+      expect(screen.getByRole('button', { name: 'Cancel 0 selected' })).toBeDisabled()
+    })
+
+    it('cancels the selected texts after confirming and refreshes the list', async () => {
+      let sentIds = null
+      server.use(
+        http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(queued), { once: true }),
+        http.get(`${BASE}/events/:id/texts`, () =>
+          HttpResponse.json(queued.map((t) => (t.id === 2 ? { ...t, status: 'canceled' } : t)))),
+        http.post(`${BASE}/events/:id/texts/cancel`, async ({ request }) => {
+          sentIds = (await request.json()).text_ids
+          return HttpResponse.json({ canceled: sentIds, skipped: 0 })
+        }),
+      )
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      await openMessages()
+
+      await userEvent.click(screen.getByLabelText('Select message to Bob Jones'))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel 1 selected' }))
+
+      expect(window.confirm).toHaveBeenCalledWith("Cancel 1 pending message? It won't be sent.")
+      await screen.findByText('Canceled 1 message.')
+      expect(sentIds).toEqual([2])
+      expect(screen.getByText('canceled')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Select message to Bob Jones')).not.toBeInTheDocument()
+    })
+
+    it('says how many were skipped because they had started sending', async () => {
+      server.use(
+        http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(queued)),
+        http.post(`${BASE}/events/:id/texts/cancel`, () => HttpResponse.json({ canceled: [1], skipped: 1 })),
+      )
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      await openMessages()
+
+      await userEvent.click(screen.getByLabelText('Select all pending (2)'))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel 2 selected' }))
+      await screen.findByText('Canceled 1. 1 had already started sending and was left alone.')
+    })
+
+    it('does nothing when the confirm is declined', async () => {
+      let called = false
+      server.use(
+        http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(queued)),
+        http.post(`${BASE}/events/:id/texts/cancel`, () => {
+          called = true
+          return HttpResponse.json({ canceled: [], skipped: 0 })
+        }),
+      )
+      vi.spyOn(window, 'confirm').mockReturnValue(false)
+      await openMessages()
+
+      await userEvent.click(screen.getByLabelText('Select message to Alice Smith'))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel 1 selected' }))
+      expect(called).toBe(false)
+      expect(screen.getByRole('button', { name: 'Cancel 1 selected' })).toBeEnabled()
+    })
+
+    it('shows an error banner when the cancel request fails', async () => {
+      server.use(
+        http.get(`${BASE}/events/:id/texts`, () => HttpResponse.json(queued)),
+        http.post(`${BASE}/events/:id/texts/cancel`, () =>
+          HttpResponse.json({ error: 'cancel failed' }, { status: 500 })),
+      )
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      await openMessages()
+
+      await userEvent.click(screen.getByLabelText('Select message to Alice Smith'))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel 1 selected' }))
+      await screen.findByText(/cancel failed/i)
+    })
+  })
+
   it('shows an error banner when a resend fails', async () => {
     const failed = [{ ...defaultTexts[0], status: 'failed', error: 'invalid number' }]
     server.use(

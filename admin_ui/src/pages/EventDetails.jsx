@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getEvent, updateEvent, addInvitee, addInvitees, sendMessage, getContacts, launchEvent, getTexts, resendText, setTextStatus, cancelEvent, deleteEvent } from '../api'
+import { getEvent, updateEvent, addInvitee, addInvitees, sendMessage, getContacts, launchEvent, getTexts, resendText, setTextStatus, cancelTexts, cancelEvent, deleteEvent } from '../api'
 import { toDatetimeLocal, formatDateShort, formatDateLong } from '../dateUtils'
 import { TagChips, TagFilter } from '../tags'
 import { allTagsOf, matchesTags } from '../tagUtils'
@@ -409,6 +409,7 @@ export default function EventDetails() {
 
       {activeTab === 'messages' && (
         <MessagesTab
+          eventId={id}
           texts={texts}
           error={textsError}
           onReload={() => getTexts(id).then(setTexts).catch((e) => setTextsError(e.message))}
@@ -418,11 +419,53 @@ export default function EventDetails() {
   )
 }
 
-function MessagesTab({ texts, error, onReload }) {
+function MessagesTab({ eventId, texts, error, onReload }) {
   const [expanded, setExpanded] = useState(new Set())
   const [resendingId, setResendingId] = useState(null)
   const [statusUpdatingId, setStatusUpdatingId] = useState(null)
   const [actionError, setActionError] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())
+  const [canceling, setCanceling] = useState(false)
+  const [cancelNotice, setCancelNotice] = useState(null)
+
+  // Only pending texts can be canceled; a text that is sending is already with
+  // a sender. Drop selections whose text has since left 'pending'.
+  const pendingIds = (texts ?? []).filter((t) => t.status === 'pending').map((t) => t.id)
+  const selectedPending = pendingIds.filter((tid) => selected.has(tid))
+  const allPendingSelected = pendingIds.length > 0 && selectedPending.length === pendingIds.length
+
+  function toggleSelected(tid) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(tid) ? next.delete(tid) : next.add(tid)
+      return next
+    })
+  }
+
+  function toggleAllPending() {
+    setSelected(allPendingSelected ? new Set() : new Set(pendingIds))
+  }
+
+  async function handleCancelSelected() {
+    const n = selectedPending.length
+    if (!window.confirm(`Cancel ${n} pending ${n === 1 ? 'message' : 'messages'}? ${n === 1 ? 'It' : 'They'} won't be sent.`)) return
+    setCanceling(true)
+    setActionError(null)
+    setCancelNotice(null)
+    try {
+      const res = await cancelTexts(eventId, selectedPending)
+      const count = res.canceled.length
+      setCancelNotice(res.skipped > 0
+        ? `Canceled ${count}. ${res.skipped} had already started sending and ${res.skipped === 1 ? 'was' : 'were'} left alone.`
+        : `Canceled ${count} ${count === 1 ? 'message' : 'messages'}.`)
+      setSelected(new Set())
+      await onReload()
+    } catch (e) {
+      setActionError(e.message)
+    } finally {
+      setCanceling(false)
+    }
+  }
 
   function toggle(id) {
     setExpanded((prev) => {
@@ -481,9 +524,26 @@ function MessagesTab({ texts, error, onReload }) {
   return (
     <section className="card">
       {actionError && <div className="error-banner">{actionError}</div>}
+      {cancelNotice && <p className="text-muted">{cancelNotice}</p>}
+      {pendingIds.length > 0 && (
+        <div className="select-all-row">
+          <label>
+            <input type="checkbox" checked={allPendingSelected} onChange={toggleAllPending} />
+            Select all pending ({pendingIds.length})
+          </label>
+          <button
+            className="btn-danger btn-sm"
+            onClick={handleCancelSelected}
+            disabled={canceling || selectedPending.length === 0}
+          >
+            {canceling ? 'Canceling…' : `Cancel ${selectedPending.length} selected`}
+          </button>
+        </div>
+      )}
       <table className="table">
         <thead>
           <tr>
+            <th></th>
             <th>Created</th>
             <th>Recipient</th>
             <th>Phone</th>
@@ -495,6 +555,16 @@ function MessagesTab({ texts, error, onReload }) {
           {texts.map((t) => (
             <>
               <tr key={t.id}>
+                <td>
+                  {t.status === 'pending' && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select message to ${t.first_name} ${t.last_name}`}
+                      checked={selected.has(t.id)}
+                      onChange={() => toggleSelected(t.id)}
+                    />
+                  )}
+                </td>
                 <td className="text-muted" style={{ whiteSpace: 'nowrap' }}>{formatDateShort(t.created_at)}</td>
                 <td>{t.first_name} {t.last_name}</td>
                 <td className="mono">{formatPhone(t.phone_number)}</td>
@@ -512,6 +582,7 @@ function MessagesTab({ texts, error, onReload }) {
                     <option value="sending">Sending</option>
                     <option value="sent">Sent</option>
                     <option value="failed">Failed</option>
+                    <option value="canceled">Canceled</option>
                   </select>
                   {t.status === 'failed' && (
                     <button
@@ -534,7 +605,7 @@ function MessagesTab({ texts, error, onReload }) {
               </tr>
               {expanded.has(t.id) && (
                 <tr key={`${t.id}-body`} className="message-body-row">
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     {t.status === 'failed' && t.error && (
                       <p style={{ margin: '0 0 0.5rem', color: 'var(--danger)' }}>Error: {t.error}</p>
                     )}
@@ -556,6 +627,7 @@ function TextStatusBadge({ status }) {
     'sending': 'badge-tentative',
     'sent':    'badge-accepted',
     'failed':  'badge-declined',
+    'canceled': 'badge-canceled',
   }[status] || 'badge-none'
   return <span className={`badge ${cls}`}>{status}</span>
 }

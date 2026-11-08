@@ -101,6 +101,7 @@ func main() {
 		admin.POST("/events/:id/messages", env.adminSendMessage)
 		admin.GET("/events/:id/texts", env.adminGetTexts)
 		admin.POST("/events/:id/launch", env.adminLaunchEvent)
+		admin.POST("/events/:id/texts/cancel", env.adminCancelTexts)
 		admin.POST("/texts/:id/resend", env.adminResendText)
 		admin.GET("/texts/pending", env.adminClaimPendingTexts)
 		admin.POST("/texts/:id/status", env.adminReportTextStatus)
