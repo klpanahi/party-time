@@ -33,7 +33,7 @@ something already broken, use `diagnose-party-time`.
 | `*/src/test/msw/handlers.js` | Mock API for the frontend tests |
 | `deploy/nginx/public.conf`, `deploy/nginx/admin.conf` | nginx vhost bodies — single source of truth for both edges, in this repo |
 | `deploy/party-time.yml` | Deploy playbook |
-| `ops/AGENT.md` | Full operations manual this skill is a companion to |
+| `ops/CLAUDE.md` | Full operations manual this skill is a companion to |
 
 Backend runs once as two containers: `ADMIN_ENABLED=false` (public, `:8080`) and
 `ADMIN_ENABLED=true` (admin, `:8081`). Same binary, same image.
@@ -113,7 +113,7 @@ in the binary via `//go:embed`. Add a new file, never edit an existing one:
    (`docker-compose.prod.yml`, `command: ["migrate", "up"]`) before either
    backend container starts — no manual `ALTER TABLE` against prod.
 4. If this is the **first** migrations-carrying deploy since goose was
-   adopted, production needs the one-time baseline step in `ops/AGENT.md`
+   adopted, production needs the one-time baseline step in `ops/CLAUDE.md`
    (goose must be told `00001_init.sql` is already applied, since production
    already has those tables). It has not been run yet as of this writing —
    check with the operator before the first such deploy.
@@ -140,7 +140,7 @@ so dev matches prod.
 and `parseCentralTime` parses it as `America/Chicago`. It accepts both
 `YYYY-MM-DDTHH:MM` and `...:SS`. Both call sites map *any* error from it to
 `"invalid date format"`, so that message does not necessarily mean the input was
-malformed — see hazard 4 in `ops/AGENT.md`.
+malformed — see hazard 4 in `ops/CLAUDE.md`.
 
 **Never remove `import _ "time/tzdata"` from `main.go`.** The Alpine image has no
 timezone database and `CGO_ENABLED=0` rules out the system fallback, so removing

@@ -3,7 +3,7 @@
 # non-main branch (see hard rules — those refusals are cheap and MUST happen
 # before ./build.sh, which is not), builds, ships, verifies the playbook
 # reported success, then verifies the deployed SHA and runs the existing
-# smoke checks. See ops/AGENT.md for the full deploy procedure this wraps.
+# smoke checks. See ops/CLAUDE.md for the full deploy procedure this wraps.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"

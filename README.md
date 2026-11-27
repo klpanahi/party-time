@@ -27,7 +27,7 @@ Or use `./run_local.sh` from the repo root to start postgres + backend (air) + b
 together; pass `--no-reset` to restart without wiping the database. `./test.sh` runs the
 full test suite (backend + both UIs) against a throwaway test Postgres, and `./e2e.sh`
 smoke-tests the built UIs through a real nginx edge running the production vhost configs
-(`deploy/nginx/public.conf` / `admin.conf`) — see `AGENT.md` for details.
+(`deploy/nginx/public.conf` / `admin.conf`) — see `CLAUDE.md` for details.
 
 ### Sending texts via iMessage instead of Twilio
 
@@ -117,7 +117,7 @@ cd ~/Documents/Workspace/homelab-workspace/repos/party-time
 ```
 
 Deployment itself is the Ansible playbook `deploy/party-time.yml` in this repo —
-see [`ops/AGENT.md`](ops/AGENT.md) for the full procedure, including the nginx
+see [`ops/CLAUDE.md`](ops/CLAUDE.md) for the full procedure, including the nginx
 vhost bodies at `deploy/nginx/public.conf` and `deploy/nginx/admin.conf` (the
 single source of truth for both edges), and the `ops/incident-log.md` /
 `ops/healthcheck.sh` companions. Direct invocation, if you need it:
@@ -147,7 +147,7 @@ compose` — different file, never touches `.env.prod`.)
 The schema is versioned as goose migrations in `public_backend/migrations/`,
 embedded in the backend binary and applied by a one-shot `migrate` service in
 `docker-compose.prod.yml` that runs before either backend starts — see
-`ops/AGENT.md` for details, including the one-time production baseline step.
+`ops/CLAUDE.md` for details, including the one-time production baseline step.
 
 ### Proxmox networking
 

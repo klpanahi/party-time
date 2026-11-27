@@ -1,6 +1,6 @@
 # Party Time — Public Backend
 
-Go + Gin REST API. See `agent.md` for full architecture and endpoint reference.
+Go + Gin REST API. See the root `CLAUDE.md` for full architecture and endpoint reference.
 
 ## Running tests
 
