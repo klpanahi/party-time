@@ -31,7 +31,7 @@ party-time/
 │   ├── local-edge/     Local dev edge reverse proxy (nginx)
 │   └── nginx/          Vhost configs for nginx role (dropped into /etc/nginx/conf.d/)
 ├── run_local.sh        Starts all three services at once
-└── AGENT.md            Project-wide developer guide
+└── CLAUDE.md           Project-wide developer guide
 ```
 
 ## Data Flow: Event Lifecycle

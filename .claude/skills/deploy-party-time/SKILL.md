@@ -17,7 +17,7 @@ run under conditions that would make "success" a lie.
   missing — **do not create or copy that file**; tell the user it is missing and stop.
 - VMs already provisioned and `homelab/ansible/site.yml` applied.
 - **First deploy carrying the goose migrations change only**: the one-time
-  production baseline in `ops/AGENT.md` ("One-time production baseline (goose
+  production baseline in `ops/CLAUDE.md` ("One-time production baseline (goose
   adoption)") must be run once, by hand, before `deploy.sh` — it has **not**
   been run yet as of this writing. Without it, the `migrate` service will try
   to `CREATE TABLE` on tables that already exist and fail. Check whether it's
@@ -160,4 +160,4 @@ Hours or days old means the deploy did not apply.
   builder stage under QEMU emulation, which is *slower* than the in-guest
   build it replaced.
 - Full manual procedure, hazards, and the one-time goose baseline step are in
-  `ops/AGENT.md` — this skill is the fast path through it.
+  `ops/CLAUDE.md` — this skill is the fast path through it.

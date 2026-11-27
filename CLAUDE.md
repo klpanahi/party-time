@@ -84,7 +84,7 @@ is per checkout too (`<checkout dir>-postgres-db-1`, on 5432).
 
 `./deploy.sh` is the single post-merge command — see the "Deploying" section
 of [`README.md`](README.md) and the full procedure in
-[`ops/AGENT.md`](ops/AGENT.md). It refuses a dirty tree or a non-main branch
+[`ops/CLAUDE.md`](ops/CLAUDE.md). It refuses a dirty tree or a non-main branch
 before doing anything expensive, builds, ships the SHA-pinned image, verifies
 the playbook's `PLAY RECAP`, and confirms `/healthz` on both edges reports the
 SHA it just deployed.

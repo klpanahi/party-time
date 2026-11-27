@@ -23,7 +23,7 @@ cloudflared kept running and reported the origin as refused.
 vhosts `proxy_pass` to `$public_backend` / `$admin_backend` (mapped to the
 `home.arpa` name in `deploy/nginx/*-upstream.conf`), resolved per request
 through `/etc/nginx/conf.d/resolver.conf` from homelab. nginx now starts
-whether or not DNS answers yet. See `ops/AGENT.md` hazard 7.
+whether or not DNS answers yet. See `ops/CLAUDE.md` hazard 7.
 
 **Tell:** Cloudflare's text/plain 502 plus `connection refused` to
 `127.0.0.1:80` in cloudflared's log means nginx isn't running, not that the

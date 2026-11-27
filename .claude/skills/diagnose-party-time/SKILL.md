@@ -122,7 +122,7 @@ ssh root@nginx-cloudflared.home.arpa 'systemctl is-active nginx; nginx -t'
 >
 > If `nginx -t` says `host not found in upstream "..."`, a static name has crept
 > back in: find it (`grep -rn "server \|proxy_pass http" /etc/nginx/`), move it
-> to the variable form, then `systemctl restart nginx`. See `ops/AGENT.md`
+> to the variable form, then `systemctl restart nginx`. See `ops/CLAUDE.md`
 > hazard 7.
 
 Also check cloudflared on the same host:

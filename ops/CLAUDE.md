@@ -155,7 +155,7 @@ its `README.md` for where everything went.
 | Repo | Path | Contains |
 |---|---|---|
 | `homelab` | `~/Documents/Workspace/homelab-workspace/repos/homelab` | Terraform (VM provisioning) + Ansible (generic install/baseline configuration) |
-| `party-time` | `~/Documents/Workspace/homelab-workspace/repos/party-time` | Go/Gin backend, two React SPAs, the deploy playbook and nginx vhost configs, this document (`ops/AGENT.md`), and the companion skills |
+| `party-time` | `~/Documents/Workspace/homelab-workspace/repos/party-time` | Go/Gin backend, two React SPAs, the deploy playbook and nginx vhost configs, this document (`ops/CLAUDE.md`), and the companion skills |
 | `party-time-ops` | `~/Documents/Workspace/party-time-ops` | **Archived.** Tombstone `README.md` only. |
 
 ### `homelab` — key files
